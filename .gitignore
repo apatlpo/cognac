@@ -23,6 +23,7 @@ __pycache__/
 *.jpg
 *.pdf
 *.mp4
+*.wav
 
 # openoffice
 *.odp#
