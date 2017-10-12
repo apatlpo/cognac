@@ -6,15 +6,13 @@ Download Miniconda2 from the [conda website](https://conda.io/miniconda.html)
 bash Miniconda2-latest-Linux-x86_64.sh
 bash
 conda update conda
-conda create --name sst python
-source activate sst
-conda install dask distributed -c conda-forge
-conda install graphviz -c conda-forge
+conda create --name cognac python
+source activate cognac
 conda install xarray -c conda-forge
-conda install h5py -c conda-forge
-conda install netcdf4 -c conda-forge
-conda install jupyter -c conda-forge
+conda install graphviz -c conda-forge
+conda install matplotlib -c conda-forge
 conda install cartopy -c conda-forge
+conda install jupyter -c conda-forge
 ```
 
 
