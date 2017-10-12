@@ -15,7 +15,10 @@ conda install cartopy -c conda-forge
 conda install jupyter -c conda-forge
 ```
 
-
+In order to add the environnement to kernels available to jupyter, you need to run:
+```
+python -m ipykernel install --user --name cognac --display-name "COGNAC project env"
+```
 
 # Miniconda in general:
 
