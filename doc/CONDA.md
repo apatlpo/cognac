@@ -10,7 +10,6 @@ conda create --name cognac python
 source activate cognac
 conda install xarray -c conda-forge
 conda install graphviz -c conda-forge
-conda install matplotlib -c conda-forge
 conda install cartopy -c conda-forge
 conda install jupyter -c conda-forge
 ```
