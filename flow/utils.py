@@ -83,4 +83,29 @@ class grid(object):
         self.sc_r = nc.getncattr('sc_r')
         self.Cs_r = nc.getncattr('Cs_r')
         #self.z_r = z_r()
+
         
+    def get_z(self,zeta,h,sc,cs):
+        ''' compute vertical coordinates
+            zeta should have the size of the final output
+            vertical coordinate should be first
+        '''
+        z0 = (self.hc * sc + h * cs) / (self.hc + h)
+        z = zeta + (zeta + h) * z0
+        return z
+
+        
+#--------------------------------------------------------------------------------------------
+def get_soundc(t,s,z,lon,lat):
+    ''' compute sound velocity
+    '''
+    import gsw
+    p = gsw.p_from_z(z,lat.mean())
+    SA = gsw.SA_from_SP(s,p, lon, lat)
+    CT = gsw.CT_from_pt(SA,t)
+    c = gsw.sound_speed(s,t,p)
+    # inputs are: SA (absolute salinity) and CT (conservative temperature)
+    return c
+    
+    
+    
