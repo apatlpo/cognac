@@ -93,8 +93,15 @@ class grid(object):
         z0 = (self.hc * sc + h * cs) / (self.hc + h)
         z = zeta + (zeta + h) * z0
         return z
+    
 
-        
+def interp2z0(z0, z, v):
+    ''' Interpolate on a horizontally uniform grid
+    '''
+    import fast_interp3D as fi  # OpenMP accelerated C based interpolator
+    return fi.interp(z0.astype('float64'),z.astype('float64'),v)
+
+
 #--------------------------------------------------------------------------------------------
 def get_soundc(t,s,z,lon,lat):
     ''' compute sound velocity

@@ -6,6 +6,8 @@ clean
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.so
+flow/build/
 
 # eclipse related files 
 .project
