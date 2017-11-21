@@ -34,6 +34,7 @@ class grid(object):
         
         self.__str__()
 
+
     def __str__(self):
         #
         print('-- Grid object')
@@ -47,7 +48,7 @@ class grid(object):
         
         
 
-    def __getitem__(self,item):
+    def __getitem__(self,ij):
         """Returns a grid object restricted to a subdomain.
 
         Use slicing with caution, this functionnality depends on the order of
@@ -70,13 +71,12 @@ class grid(object):
         """
         import copy
         print(' Generate a subset of the original grid')
-        print item
         returned = copy.copy(self)
-        returned._item = item
+        returned.ij = ij
         # update
-        returned.lon_rho = returned.lon_rho[item]
-        returned.lat_rho = returned.lat_rho[item]
-        returned.h = returned.h[item]
+        returned.lon_rho = returned.lon_rho[ij]
+        returned.lat_rho = returned.lat_rho[ij]
+        returned.h = returned.h[ij]
         #
         returned.Lp = returned.lon_rho.shape[1]
         returned.Mp = returned.lon_rho.shape[0]        
@@ -111,12 +111,16 @@ class grid(object):
         #
         self._update_hextent()
         
+        
+        
     def _update_hextent(self):
+        ''' Compute the lengths of southern and western boundaries
+        '''
         self.hextent = [self.lon_rho.min(), self.lon_rho.max(), \
                         self.lat_rho.min(), self.lat_rho.max()]
-        if hasattr(self,'_item'):
-            self.Lxi = (1./self._nch['pm'][self._item][0,:]).sum()
-            self.Leta = (1./self._nch['pn'][self._item][:,0]).sum()
+        if hasattr(self,'ij'):
+            self.Lxi = (1./self._nch['pm'][self.ij][0,:]).sum()
+            self.Leta = (1./self._nch['pn'][self.ij][:,0]).sum()
         else:
             self.Lxi = (1./self._nch['pm'][0,:]).sum()
             self.Leta = (1./self._nch['pn'][:,0]).sum()
@@ -144,7 +148,6 @@ class grid(object):
         self.Cs_r = nc.getncattr('Cs_r')
         #self.z_r = z_r()
 
-        
     def get_z(self,zeta,h,sc,cs):
         ''' compute vertical coordinates
             zeta should have the size of the final output
@@ -153,6 +156,17 @@ class grid(object):
         z0 = (self.hc * sc + h * cs) / (self.hc + h)
         z = zeta + (zeta + h) * z0
         return z
+
+    def plot_domain(self,ax,**kwargs):
+        ''' plot the domain bounding box
+        '''
+        #dlon = self.lon_rho[[0,0,-1,-1,0],[0,-1,-1,0,0]]
+        #dlat = self.lat_rho[[0,0,-1,-1,0],[0,-1,-1,0,0]]
+        dlon = np.hstack((self.lon_rho[0:-1,0],self.lon_rho[-1,0:-1], \
+                        self.lon_rho[-1:0:-1,-1],self.lon_rho[0,-1:0:-1]))
+        dlat = np.hstack((self.lat_rho[0:-1,0],self.lat_rho[-1,0:-1], \
+                        self.lat_rho[-1:0:-1,-1],self.lat_rho[0,-1:0:-1]))
+        ax.plot(dlon,dlat,**kwargs)
     
 
 def interp2z0(z0, z, v):

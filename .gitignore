@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *.so
 flow/build/
+flow/inspiration/
 
 # eclipse related files 
 .project
