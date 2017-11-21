@@ -24,6 +24,7 @@ def minmax(x,xname):
 
 class grid(object):
     
+    
     def __init__(self,datadir='/home/datawork-lops-osi/jgula/NESED/'):
         
         self._datadir = datadir
@@ -31,6 +32,61 @@ class grid(object):
         self._load_hgrid()
         self._load_vgrid()
         
+        self.__str__()
+
+    def __str__(self):
+        #
+        print('-- Grid object')
+        #
+        print('dim lon_rho: %i  %i' %self.lon_rho.shape)
+        minmax(self.lon_rho,'lon_rho')
+        minmax(self.lat_rho,'lat_rho')
+        minmax(self.h,'h')
+        #
+        print('Lxi = %f km, Leta = %f km' %(self.Lxi/1e3, self.Leta/1e3) )
+        
+        
+
+    def __getitem__(self,item):
+        """Returns a grid object restricted to a subdomain.
+
+        Use slicing with caution, this functionnality depends on the order of
+        the dimensions in the netcdf files.
+
+        Parameters
+        ----------
+        item : slice
+            item can be a slice for restricting the grid to a subdomain.
+
+        Returns
+        -------
+        out :  new grid object
+
+        Example
+        -------
+        for restricting the grid to a subdomain :
+        >>> new_grd = grd[100:200,300:500]
+
+        """
+        import copy
+        print(' Generate a subset of the original grid')
+        print item
+        returned = copy.copy(self)
+        returned._item = item
+        # update
+        returned.lon_rho = returned.lon_rho[item]
+        returned.lat_rho = returned.lat_rho[item]
+        returned.h = returned.h[item]
+        #
+        returned.Lp = returned.lon_rho.shape[1]
+        returned.Mp = returned.lon_rho.shape[0]        
+        #
+        returned._update_hextent()
+        #
+        returned.__str__()
+                
+        return returned
+
         
     def _load_hgrid(self):
         ''' load horizontal grid variables
@@ -53,13 +109,17 @@ class grid(object):
         self.Lp = self.lon_rho.shape[1]
         self.Mp = self.lon_rho.shape[0]
         #
-        print('dim lon_rho: %i  %i' %self.lon_rho.shape)
-        minmax(self.lon_rho,'lon_rho')
-        minmax(self.lat_rho,'lat_rho')
-        minmax(self.h,'h')
-        #
+        self._update_hextent()
+        
+    def _update_hextent(self):
         self.hextent = [self.lon_rho.min(), self.lon_rho.max(), \
                         self.lat_rho.min(), self.lat_rho.max()]
+        if hasattr(self,'_item'):
+            self.Lxi = (1./self._nch['pm'][self._item][0,:]).sum()
+            self.Leta = (1./self._nch['pn'][self._item][:,0]).sum()
+        else:
+            self.Lxi = (1./self._nch['pm'][0,:]).sum()
+            self.Leta = (1./self._nch['pn'][:,0]).sum()
 
 
     def _load_vgrid(self):
@@ -70,10 +130,10 @@ class grid(object):
         if len(files)==0:
             print('No nc file found in'+self._datadir)
             sys.exit()
-        for file in files:
-            nc = Dataset(file,'r')
+        for lfile in files:
+            nc = Dataset(lfile,'r')
             if 'sc_w' in nc.ncattrs():
-                print('vertical grid parameters found in %s'%(file))
+                print('vertical grid parameters found in %s'%(lfile))
                 break
             else:
                 nc.close()
