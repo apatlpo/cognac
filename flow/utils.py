@@ -167,7 +167,14 @@ class grid(object):
         dlat = np.hstack((self.lat_rho[0:-1,0],self.lat_rho[-1,0:-1], \
                         self.lat_rho[-1:0:-1,-1],self.lat_rho[0,-1:0:-1]))
         ax.plot(dlon,dlat,**kwargs)
-    
+
+    def plot_xz(self,ax,x,z,toplt,**kwargs):
+        x = (x[:,1:]-x[:,:-1])*.5
+        toplt = np.hstack((toplt,toplt[-1,:]))
+        toplt = np.vstack((toplt,toplt[-1,:]))
+        im = ax.pcolormesh(x,z,toplt,**kwargs)
+        return im
+        
 
 def interp2z0(z0, z, v):
     ''' Interpolate on a horizontally uniform grid
