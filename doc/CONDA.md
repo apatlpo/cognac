@@ -3,7 +3,7 @@
 
 Download Miniconda2 from the [conda website](https://conda.io/miniconda.html)
 ```
-bash Miniconda2-latest-Linux-x86_64.sh
+bash Miniconda3-latest-MacOSX-x86_64.sh
 bash
 conda update conda
 conda create --name cognac python
@@ -12,7 +12,7 @@ conda install xarray -c conda-forge
 conda install graphviz -c conda-forge
 conda install cartopy -c conda-forge
 conda install jupyter -c conda-forge
-pip install -Iv https://pypi.python.org/packages/07/de/f4706ac542829f7b78b3c0581d07cc39cd50c6113f92cbaec50832f4e6b5/gsw-3.0.6.tar.gz
+conda install -c conda-forge gsw
 ```
 
 In order to add the environnement to kernels available to jupyter, you need to run:
@@ -31,8 +31,8 @@ The other difference is that the Python 3 version of Miniconda will default to P
 Miniconda
 Installation
 
-After downloading Miniconda2-latest-Linux-x86_64.sh
-bash Miniconda2-latest-Linux-x86_64.sh
+After downloading Miniconda3-latest-Linux-x86_64.sh or Miniconda3-latest-MacOSX-x86_64.sh
+bash Miniconda3-latest-MacOSX-x86_64.sh
 
 Miniconda must be used with bash. If you want to use it with csh, add in your .cshrc (pas terrible!!!)
 ```
