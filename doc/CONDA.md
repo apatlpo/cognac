@@ -12,7 +12,7 @@ conda install xarray -c conda-forge
 conda install graphviz -c conda-forge
 conda install cartopy -c conda-forge
 conda install jupyter -c conda-forge
-conda install -c conda-forge gsw
+conda install gsw -c conda-forge
 ```
 
 In order to add the environnement to kernels available to jupyter, you need to run:
