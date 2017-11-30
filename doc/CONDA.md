@@ -1,7 +1,7 @@
 # Install useful libraries for this project:
 
 
-Download Miniconda2 from the [conda website](https://conda.io/miniconda.html)
+Download Miniconda3 from the [conda website](https://conda.io/miniconda.html)
 ```
 bash Miniconda3-latest-MacOSX-x86_64.sh
 bash
