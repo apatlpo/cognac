@@ -3,7 +3,7 @@ channels:
 - conda-forge
 - defaults
 dependencies:
-- appnope=0.1.0
+- appnope
 - asn1crypto=0.22.0
 - bleach=2.0.0
 - bokeh=0.12.10
