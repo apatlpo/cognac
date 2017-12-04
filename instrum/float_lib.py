@@ -185,7 +185,7 @@ class autonomous_float():
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
         wmax = np.sqrt( afmax * Lv/self.m)
-        print('Acceleration and velocity bounds:')
+        print('Acceleration and velocity bounds (zmin=%.0fm,zmax=%.0fm):' %(zmin,zmax))
         print('fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s' %(fmax/self.m,fmin/self.m,wmax*100.) )
         print('For accelerations, equivalent speed reached in 1min:')
         print('  fmax %.1e cm/s, fmin/m= %.1e cm/s' %(fmax/self.m*60.*100.,fmin/self.m*60.*100.) )
@@ -313,12 +313,15 @@ class waterp():
         '''
         pass
     
-    def get_rho(self,z,eta=0.):
+    def get_rho(self,z,eta=0.,ignore_temp=False):
         s = self.get_s(z,eta=eta)
         p = self.get_p(z,eta=eta)
         SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
         #
         temp = self.get_temp(z,eta=eta)
+        if ignore_temp:
+            temp[:]=self.temp[0]
+            print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
         CT = gsw.CT_from_t(SA, temp, p)
         #
         return gsw.density.rho(SA, CT, p)
