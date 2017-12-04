@@ -41,6 +41,7 @@ class autonomous_float():
         strout+='  L     = %.2f m      - float length\n'%(self.L)
         strout+='  a     = %.2f m      - float radius\n'%(self.a)
         strout+='  m     = %.2f kg     - float radius\n'%(self.m)
+        strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e /degC  - reference temperature\n'%(self.temp0)
@@ -74,7 +75,7 @@ class autonomous_float():
             return rho_eq-self.rho(p_eq,temp_eq)
         m0=self.m
         self.m = fsolve(func,self.m)
-        print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar'%((self.m-m0)*1.e3,p_eq))
+        print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
     
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
                   z=0.,w=0.,v=None,piston=False,t0=0.,Lv=None, \
