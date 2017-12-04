@@ -273,19 +273,23 @@ class waterp():
             ax.coastlines(resolution='110m')
             ax.gridlines()
             plt.colorbar(hdl,ax=ax)
-            ax.set_title('T(z=0) [degC]')
+            ax.set_title('sea surface temperature [degC]')
             plt.show()
     
     def __repr__(self):
         if self._woa:
             strout = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+        plt.figure(figsize=(7,5))
         ax = plt.subplot(121)
         ax.plot(self.temp,self.z,'k')
         ax.set_ylabel('z [m]')
+        ax.set_title('in situ temperature [degC]')
         plt.grid()
         ax = plt.subplot(122)
         ax.plot(self.s,self.z,'k')
-        ax.set_ylabel('z [m]')
+        ax.set_yticklabels([])
+        #ax.set_ylabel('z [m]')
+        ax.set_title('practical salinity [psu]')
         plt.grid()
         return strout
 
