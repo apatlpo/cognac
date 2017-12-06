@@ -25,11 +25,11 @@ def minmax(x,xname):
 class grid(object):
     
     
-    def __init__(self,datadir='/home/datawork-lops-osi/jgula/NESED/'):
+    def __init__(self,datadir='/home/datawork-lops-osi/jgula/NESED/',hgrid_file=None):
         
         self._datadir = datadir
         
-        self._load_hgrid()
+        self._load_hgrid(hgrid_file=hgrid_file)
         self._load_vgrid()
         
         self.__str__()
@@ -88,19 +88,20 @@ class grid(object):
         return returned
 
         
-    def _load_hgrid(self):
+    def _load_hgrid(self,hgrid_file=None):
         ''' load horizontal grid variables
         '''
-        # search for files
-        grd_file = glob(self._datadir+'*grd.nc')
-        if len(grd_file)==0:
-            print('No grid file found in'+self._datadir)
-            sys.exit()
-        else:
-            print('%i grid file found, uses: %s'%(len(grd_file),grd_file[0]))
-            grd_file = grd_file[0]
+        if hgrid_file is None:
+            # search for files
+            hgrid_file = glob(self._datadir+'*grd.nc')
+            if len(hgrid_file)==0:
+                print('No grid file found in'+self._datadir)
+                sys.exit()
+            else:
+                print('%i grid file found, uses: %s'%(len(hgrid_file),hgrid_file[0]))
+                hgrd_file = hgrid_file[0]
         # open and load variables
-        nc = Dataset(grd_file,'r')
+        nc = Dataset(hgrid_file,'r')
         self._nch = nc
         self.lon_rho = nc['lon_rho'][:]
         self.lat_rho = nc['lat_rho'][:]
@@ -164,6 +165,7 @@ class grid(object):
         #dlat = self.lat_rho[[0,0,-1,-1,0],[0,-1,-1,0,0]]
         dlon = np.hstack((self.lon_rho[0:-1,0],self.lon_rho[-1,0:-1], \
                         self.lon_rho[-1:0:-1,-1],self.lon_rho[0,-1:0:-1]))
+        dlon[np.where(dlon>180)]=dlon[np.where(dlon>180)]-360
         dlat = np.hstack((self.lat_rho[0:-1,0],self.lat_rho[-1,0:-1], \
                         self.lat_rho[-1:0:-1,-1],self.lat_rho[0,-1:0:-1]))
         ax.plot(dlon,dlat,**kwargs)
