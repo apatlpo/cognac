@@ -99,7 +99,7 @@ class grid(object):
                 sys.exit()
             else:
                 print('%i grid file found, uses: %s'%(len(hgrid_file),hgrid_file[0]))
-                hgrd_file = hgrid_file[0]
+                hgrid_file = hgrid_file[0]
         # open and load variables
         nc = Dataset(hgrid_file,'r')
         self._nch = nc
