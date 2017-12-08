@@ -1,4 +1,7 @@
 name: cognac
+channels:
+- conda-forge
+- defaults
 dependencies:
 - asn1crypto=0.22.0
 - backports=1.0
@@ -153,10 +156,6 @@ dependencies:
 - zeromq=4.2.1
 - zict=0.1.3
 - zlib=1.2.8
-- libgfortran=3.0.0
-- libgfortran-ng=7.2.0
-- libstdcxx-ng=7.2.0
-- mkl=2018.0.0
 - numpy=1.13.3
 - scipy=0.19.1
 - pip:
