@@ -49,7 +49,7 @@ class autonomous_float():
             strout+=str(self.piston)
         return strout
     
-    def rho(self,p,temp,v=None):
+    def rho(self,p=None,temp=None,v=None,z=None,waterp=None):
         ''' Returns float density i.e. mass over volume
         '''
         if v is None:
@@ -57,8 +57,20 @@ class autonomous_float():
                 v = self.v
             else:
                 v = 0.
-        return self.m/(self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0))+v)
+        if p is not None and temps is not None:
+            return self.m/(self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0))+v)
+        elif z is not None and waterp is not None:
+            # assumes thermal equilibrium
+            p, tempw = waterp.get_p(self.z), waterp.get_temp(self.z)
+            return self.rho(p,tempw,v=v)
+        else:
+            print('You need to provide p/temp or z/waterp')
 
+    def volume(self,**kwargs):
+        ''' Returns float volume (V+v)
+        '''
+        return self.m/self.rho(**kwargs)    
+    
     def adjust_balast(self,p_eq,temp_eq,rho_eq):
         ''' Find volume that needs to be added in order to be at equilibrium 
             prescribed pressure, temperature, density
@@ -79,7 +91,7 @@ class autonomous_float():
     
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
                   z=0.,w=0.,v=None,piston=False,t0=0.,Lv=None, \
-                  z_target=0., w_target=0., dwdt_target=0., tau_ctrl=60., dt_ctrl=None, **kwargs):
+                  z_target=None, tau_ctrl=60., dt_ctrl=None, **kwargs):
         ''' Time step the float position given initial conditions
         '''
         t=t0
@@ -119,7 +131,8 @@ class autonomous_float():
             rhof = self.rho(p,tempw)
             # store
             if (dt_store is not None) and t_modulo_dt(t,dt_store,threshold_store):
-                ndata = [t,self.z,self.w,_f,rhof,rhow]
+                #ndata = [t,self.z,self.w,_f,rhof,rhow]
+                ndata = [t,self.z,self.w,self.v,_f]
                 if not hasattr(self,'X'):
                     self.X=np.array(ndata)
                 else:
@@ -128,13 +141,27 @@ class autonomous_float():
                 #print('z=%.2f'%self.z)
             # plot
             # get vertical force on float
-            _f = self._f(p,rhof,rhow,Lv)            
+            #_f = self._f(p,rhof,rhow,Lv)
+            _f = self._fn(z,waterp,Lv)
             # decide wether piston will be adjusted
             if piston and t_modulo_dt(t,dt_ctrl,threshold_ctrl):
-                if self._control(self.z,self.w,_f/self.m,z_target,w_target,dwdt_target,tau_ctrl)>0:
-                    self.piston.push()
-                else:
-                    self.piston.pull()
+                z_t = z_target(t)
+                dz_t = (z_target(t+.05)-z_target(t-.05))/.1
+                d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.01
+                #
+                x2=self.w
+                f2=_f
+                f3= (self.volume(z=self.z+.5,waterp=waterp) - self.volume(z=self.z+.5,waterp=waterp) )/1. *x2 # dVdz*w
+                df1, df2, df3 = self._df(z,waterp,Lv)
+                #
+                d3y = self._control(self.z,self.w,_f/self.m,z_t,dz_t,d2z_t,tau_ctrl)
+                u = df1 *x2 + df2 *f2 + df3 *f3 - d3y
+                u = u/df3
+                self.piston.push(dv=u*dt_ctrl)
+                #if self._control(self.z,self.w,_f/self.m,z_target,w_target,dwdt_target,tau_ctrl)>0:
+                #    self.piston.push()
+                #else:
+                #    self.piston.pull()
             # update
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
@@ -151,6 +178,29 @@ class autonomous_float():
         f += self.m*rhow/rhof*g # Pi0, we ignore DwDt terms for now
         f += -self.m/Lv*np.abs(self.w)*self.w # Pi'
         return f
+
+    def _fn(self,z,waterp,Lv,v=None,w=None):
+        ''' Compute the vertical force exterted on the float
+        '''
+        p, tempw = waterp.get_p(self.z), waterp.get_temp(self.z)
+        rhow = waterp.get_rho(self.z)
+        rhof = self.rho(p,tempw,v=v)
+        #
+        f = -self.m*g
+        f += self.m*rhow/rhof*g # Pi0, we ignore DwDt terms for now
+        #
+        if w is None:
+            w=self.w
+        f += -self.m/Lv*np.abs(w)*w # Pi'
+        return f
+    
+    def _df(self,z,waterp,Lv):
+        ''' Compute gradients of the vertical force exterted on the float
+        '''
+        df1 = ( self._fn(z+5.e-2,waterp,Lv) - self._fn(z-5.e-2,waterp,Lv) ) /1.e-1
+        df2 = ( self._fn(z,waterp,Lv,w=self.w+5.e-3) - self._fn(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
+        df3 = ( self._fn(z,waterp,Lv,v=self.v+5.e-5) - self._fn(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
+        return df1, df2, df3
     
     def init_piston(self,vmin,vmax,dv=None,v=None):
         if dv is None:
@@ -171,6 +221,7 @@ class autonomous_float():
         rhow = waterp.get_rho(z)
         if hasattr(self,'piston'):
             rhof = self.rho(p,tempw,v=self.piston.vmax)
+            dv = self.piston.dv
         else:
             rhof = self.rho(p,tempw)
         fmax=self._f(p,rhof,rhow,Lv) # upward force
@@ -190,14 +241,25 @@ class autonomous_float():
         print('fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s' %(fmax/self.m,fmin/self.m,wmax*100.) )
         print('For accelerations, equivalent speed reached in 1min:')
         print('  fmax %.1e cm/s, fmin/m= %.1e cm/s' %(fmax/self.m*60.*100.,fmin/self.m*60.*100.) )
-        return fmax, fmin, afmax, wmax
+        #
+        if hasattr(self,'piston'):
+            dv = self.piston.dv
+            rhow = self.rho(p,tempw,v=self.piston.vmin)
+            rhof = self.rho(p,tempw,v=self.piston.vmin+dv)
+            df = self.m*(-1.+rhow/rhof)*g
+            print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
+            print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
+                  %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
         
-    def _control(self,z,w,dwdt,z_target,w_target,dwdt_target,tau_ctrl):
+        return fmax, fmin, afmax, wmax
+
+    def _control(self,z,dzdt,d2zdt2,z_target,dzdt_target,d2zdt2_target,tau_ctrl):
         ''' Several inputs are required:
         (z_target,w_target,dwdt_target) - describes the trajectory
         tau_ctrl  - a time scale of control 
         '''
-        return np.sign( (dwdt_target - dwdt)*tau_ctrl**2 + 2*(w_target-w)*tau_ctrl + z_target-z )
+        return np.sign( d2zdt2_target - d2zdt2 + 2*(dzdt_target-dzdt)/tau_ctrl + (z_target-z)/tau_ctrl**2 ) \
+                /tau_ctrl
         #return np.sign( z_target-z )
 
     
@@ -222,12 +284,22 @@ class piston():
     
     def push(self,dv=None):
         if dv is None:
-            self.v+=self.dv
+            dv=self.dv
+        self.v+=dv
+        self._checkbounds()
         
     def pull(self,dv=None):
         if dv is None:
-            self.v+=-self.dv
-
+            dv=-self.dv
+        self.v+=dv
+        self._checkbounds()
+        
+    def _checkbounds(self):
+        if self.v>self.vmax:
+            self.v=self.vmax
+        if self.v<self.vmin:
+            self.v=self.vmin
+            
 #
 class waterp():
     
