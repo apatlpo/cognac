@@ -30,6 +30,18 @@ def interp(z_in,v_in,z_out):
 class autonomous_float():
     
     def __init__(self,**kwargs):
+        ''' Float constructor, the float is assumed to be a cylinder
+        
+        Parameters
+        ----------
+            a : float radius [m]
+            L : float length [m]
+            m : float mass [kg]
+            gamma : mechanical compressibility [1/dbar]
+            alpha : thermal compressibility [1/degC]
+            temp0: reference temperature used for thermal compressibility [degC]
+            
+        '''
         # default parameters
         params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
         params['m']= 1000. * np.pi * params['a']**2 * params['L']
@@ -48,7 +60,7 @@ class autonomous_float():
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
-        strout+='  temp0 = %.2e /degC  - reference temperature\n'%(self.temp0)
+        strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
         if hasattr(self,'piston'):
             strout+=str(self.piston)
         return strout
