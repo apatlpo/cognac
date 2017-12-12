@@ -27,14 +27,17 @@ def t_modulo_dt(t,dt,dt_step):
 def interp(z_in,v_in,z_out):    
     return interp1d(z_in,v_in,kind='linear',fill_value='extrapolate')(z_out)
         
-def plot_log(f,z_target=None,title=None):
+def plot_log(f,z_target=None,eta=None,title=None):
     log=f.log
     t = log.t
     plt.figure(figsize=(10,10))
     ax=plt.subplot(221)
     ax.plot(t/60.,log.z)
     if z_target is not None:
-        ax.plot(t/60.,z_target(t),'r')
+        ax.plot(t/60.,z_target(t),color='r',label='target')
+        if eta is not None:
+            ax.plot(t/60.,z_target(t)+eta(t),color='green',label='target+eta')
+    ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('z [m]')
     if title is not None:
@@ -232,7 +235,9 @@ class autonomous_float():
         
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
                   z=None,w=None,v=None,t0=0.,Lv=None, \
-                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, log=True,**kwargs):
+                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, \
+                  eta=lambda t: 0., \
+                  log=True,**kwargs):
         ''' Time step the float position given initial conditions
         '''
         t=t0
@@ -276,6 +281,7 @@ class autonomous_float():
         while t<t0+T:
             #
             # get vertical force on float
+            waterp.eta=eta(t) # update isopycnal displacement
             _f = self._f(self.z,waterp,Lv)
             # control starts here
             if usepiston and t_modulo_dt(t,dt_ctrl,dt_step):
@@ -409,7 +415,11 @@ class waterp():
             nc = Dataset(self._sfile,'r')
             self.s = nc.variables['s_an'][0,:,ilat,ilon]
             nc.close()
-            #
+            # derive absolute salinity and conservative temperature
+            self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+            self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+            # isopycnal displacement
+            self.eta=0.
 
     
     def show_on_map(self):
@@ -448,37 +458,47 @@ class waterp():
         plt.grid()
         return strout
 
-    def get_temp(self,z,eta=0.):
+    def get_temp(self,z):
         ''' get in situ temperature
         '''
-        return interp(self.z,self.temp,z)
-
-    def get_s(self,z,eta=0.):
+        #return interp(self.z, self.temp, z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        p = self.get_p(z)
+        return gsw.conversions.t_from_CT(SA,CT,p)
+                        
+    def get_s(self,z):
         ''' get practical salinity
         '''
-        return interp(self.z,self.s,z)
+        return interp(self.z, self.s, z-self.eta)
 
-    def get_p(self,z,eta=0.):
+    def get_p(self,z):
         ''' get pressure
         '''
-        return interp(self.z,self.p,z)
+        return interp(self.z, self.p, z)
 
-    def get_theta(self,z,eta=0.):
+    def get_theta(self,z):
         ''' get potential temperature
         '''
-        pass
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.conversions.pt_from_CT(SA,CT)
     
-    def get_rho(self,z,eta=0.,ignore_temp=False):
-        s = self.get_s(z,eta=eta)
-        p = self.get_p(z,eta=eta)
-        SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
+    def get_rho(self,z, ignore_temp=False):
+        #s = self.get_s(z,eta=eta)
+        p = self.get_p(z)
+        #SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
+        SA = interp(self.z, self.SA, z-self.eta)
         #
-        temp = self.get_temp(z,eta=eta)
+        #temp = self.get_temp(z,eta=eta)
+        #if ignore_temp:
+        #    temp[:]=self.temp[0]
+        #    print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
+        #CT = gsw.CT_from_t(SA, temp, p)
+        CT = interp(self.z, self.CT, z-self.eta)
         if ignore_temp:
-            temp[:]=self.temp[0]
-            print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
-        CT = gsw.CT_from_t(SA, temp, p)
-        #
+            CT[:]=self.CT[0]
+            print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
 
 
