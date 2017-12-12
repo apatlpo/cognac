@@ -9,20 +9,64 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
 
+
+#------------------------------------------------------------------------------------------------------------
+# utils functions
+
 # 
 g=9.81
 
 #
-def t_modulo_dt(t,dt,threshold):
+def t_modulo_dt(t,dt,dt_step):
+    threshold = 0.25* dt_step/dt
     if np.abs(t/dt-np.rint(t/dt)) < threshold:
         return True
     else:
         return False
 
-def interp(z_in,v_in,z_out):
+def interp(z_in,v_in,z_out):    
     return interp1d(z_in,v_in,kind='linear',fill_value='extrapolate')(z_out)
+        
+def plot_log(f,z_target=None,title=None):
+    log=f.log
+    t = log.t
+    plt.figure(figsize=(10,10))
+    ax=plt.subplot(221)
+    ax.plot(t/60.,log.z)
+    if z_target is not None:
+        ax.plot(t/60.,z_target(t),'r')
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('z [m]')
+    if title is not None:
+        ax.set_title(title)
+    ax.grid()
+    #
+    ax=plt.subplot(222,sharex=ax)
+    ax.plot(t/60.,log.w)
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('dzdt [m/s]')
+    ax.grid()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
 
+    ax=plt.subplot(223)
+    ax.plot(t/60.,log.v*1.e6,'-')
+    ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
+    ax.axhline(f.piston.vmin*1.e6,ls='--',color='k')
+    ax.axhline(f.piston.vmax*1.e6,ls='--',color='k')
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('v [cm^3]')
+    ax.grid()
 
+    ax=plt.subplot(224,sharex=ax)
+    ax.plot(t/60.,log.dwdt)
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('d2zdt2 [m/s^2]')
+    ax.grid()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
+
+    
 #------------------------------------------------------------------------------------------------------------
 
 
@@ -102,7 +146,7 @@ class autonomous_float():
             self.m = m
             return rho_eq-self.rho(p=p_eq,temp=temp_eq)
         m0=self.m
-        self.m = fsolve(func,self.m)
+        self.m = fsolve(func,self.m)[0]
         print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
 
     def init_piston(self,vmin,vmax,dv=None,v=None):
@@ -180,20 +224,33 @@ class autonomous_float():
             rhow = self.rho(p=p,temp=tempw,v=self.piston.vmin)
             rhof = self.rho(p=p,temp=tempw,v=self.piston.vmin+dv)
             df = self.m*(-1.+rhow/rhof)*g
-            print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
+            print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df/self.m))
             print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
-                  %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
+                  %(df/self.m*60,df/self.m*60**2/2.))
         
         return fmax, fmin, afmax, wmax        
         
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
-                  z=0.,w=0.,v=None,t0=0.,Lv=None, \
+                  z=None,w=None,v=None,t0=0.,Lv=None, \
                   usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, log=True,**kwargs):
         ''' Time step the float position given initial conditions
         '''
         t=t0
+        #
+        if z is None:
+            if not hasattr(self,'z'):
+                z=0.
+            else:
+                z=self.z
         self.z = z
+        #
+        if w is None:
+            if not hasattr(self,'w'):
+                w=0.
+            else:
+                w=self.w
         self.w = w
+        #
         if usepiston:
             if v is not None:
                 self.piston.v=v
@@ -208,15 +265,6 @@ class autonomous_float():
             Lv=self.L
         self.Lv=Lv
         #
-        if dt_store is not None:
-            threshold_store = 0.5* dt_step/dt_store
-        #
-        if dt_ctrl is not None:
-            threshold_ctrl = 0.5* dt_step/dt_ctrl
-        else:
-            dt_ctrl = dt_step
-            threshold_ctrl = 0.5* dt_step/dt_ctrl
-        #
         if log:
             if hasattr(self,'log'):
                 delattr(self,'log')        
@@ -230,7 +278,7 @@ class autonomous_float():
             # get vertical force on float
             _f = self._f(self.z,waterp,Lv)
             # control starts here
-            if usepiston and t_modulo_dt(t,dt_ctrl,threshold_ctrl):
+            if usepiston and t_modulo_dt(t,dt_ctrl,dt_step):
                 z_t = z_target(t)
                 dz_t = (z_target(t+.05)-z_target(t-.05))/.1
                 d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
@@ -256,14 +304,12 @@ class autonomous_float():
                 self.v=self.piston.v
             # store
             if log:
-                if (dt_store is not None) and t_modulo_dt(t,dt_store,threshold_store):
+                if (dt_store is not None) and t_modulo_dt(t,dt_store,dt_step):
                     self.log.store(t=t,z=self.z,w=self.w,v=self.v,dwdt=_f/self.m)
             # update variables
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
             self.w += dt_step*_f/self.m
-            #if usepiston:
-            #    self.v = self.piston.v
             t+=dt_step
         print('... time stepping done')
        
