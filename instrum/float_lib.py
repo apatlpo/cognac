@@ -1,4 +1,5 @@
 
+import sys
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
@@ -23,6 +24,8 @@ def interp(z_in,v_in,z_out):
     return interp1d(z_in,v_in,kind='linear',fill_value='extrapolate')(z_out)
 
 
+
+#------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------
 
 
@@ -45,6 +48,10 @@ class autonomous_float():
         # default parameters
         params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
         params['m']= 1000. * np.pi * params['a']**2 * params['L']
+        #
+        if 'ENSTA' in kwargs:
+            params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
+            params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -105,10 +112,8 @@ class autonomous_float():
         self.m = fsolve(func,self.m)
         print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
 
-    def init_piston(self,vmin,vmax,dv=None,v=None):
-        if dv is None:
-            dv = (vmax-vmin)/10.
-        self.piston = piston(vmin,vmax,dv,v=v)        
+    def init_piston(self,**kwargs):
+        self.piston = piston(**kwargs)
         
     def _f0(self,p,rhof,rhow,Lv):
         ''' Compute the vertical force exterted on the float
@@ -153,15 +158,14 @@ class autonomous_float():
         #
         z=zmax
         if hasattr(self,'piston'):
-            v=self.piston.vmax
-            dv=self.piston.dv
+            v=self.piston.vol_max
         else:
             v=None
         fmax=self._f(z,waterp,Lv,v=v,w=0.) # upward force
         #
         z=zmin
         if hasattr(self,'piston'):
-            v=self.piston.vmin
+            v=self.piston.vol_min
         else:
             v=None
         fmin=self._f(z,waterp,Lv,v=v,w=0.) # downward force
@@ -173,16 +177,15 @@ class autonomous_float():
         print('For accelerations, equivalent speed reached in 1min:')
         print('  fmax %.1e cm/s, fmin/m= %.1e cm/s' %(fmax/self.m*60.*100.,fmin/self.m*60.*100.) )
         #
-        if hasattr(self,'piston'):
-            dv = self.piston.dv
-            p, tempw = waterp.get_p(z), waterp.get_temp(z)
-            rhow = waterp.get_rho(z)            
-            rhow = self.rho(p=p,temp=tempw,v=self.piston.vmin)
-            rhof = self.rho(p=p,temp=tempw,v=self.piston.vmin+dv)
-            df = self.m*(-1.+rhow/rhof)*g
-            print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
-            print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
-                  %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
+        #if hasattr(self,'piston'):
+        #    dv = self.piston.dv
+        #    p, tempw = waterp.get_p(z), waterp.get_temp(z)
+        #    rhow = self.rho(p=p,temp=tempw,v=self.piston.vol_min)
+        #    rhof = self.rho(p=p,temp=tempw,v=self.piston.vol_min+dv)
+        #    df = self.m*(-1.+rhow/rhof)*g
+        #    print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
+        #    print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
+        #          %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
         
         return fmax, fmin, afmax, wmax        
         
@@ -196,8 +199,8 @@ class autonomous_float():
         self.w = w
         if usepiston:
             if v is not None:
-                self.piston.v=v
-            self.v=self.piston.v
+                self.piston.update_vol(v)
+            self.v=self.piston.vol
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -211,11 +214,11 @@ class autonomous_float():
         if dt_store is not None:
             threshold_store = 0.5* dt_step/dt_store
         #
-        if dt_ctrl is not None:
-            threshold_ctrl = 0.5* dt_step/dt_ctrl
-        else:
-            dt_ctrl = dt_step
-            threshold_ctrl = 0.5* dt_step/dt_ctrl
+        #if dt_ctrl is not None:
+        #    threshold_ctrl = 0.5* dt_step/dt_ctrl
+        #else:
+        #    dt_ctrl = dt_step
+        #    threshold_ctrl = 0.5* dt_step/dt_ctrl
         #
         if log:
             if hasattr(self,'log'):
@@ -230,7 +233,8 @@ class autonomous_float():
             # get vertical force on float
             _f = self._f(self.z,waterp,Lv)
             # control starts here
-            if usepiston and t_modulo_dt(t,dt_ctrl,threshold_ctrl):
+            #if usepiston and t_modulo_dt(t,dt_ctrl,threshold_ctrl):
+            if usepiston:
                 z_t = z_target(t)
                 dz_t = (z_target(t+.05)-z_target(t-.05))/.1
                 d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
@@ -252,8 +256,8 @@ class autonomous_float():
                     log+='df1*x2=%+.1e df2*f2=%+.1e df3*f3=%+.1e, d3y=%+.1e '%(df1*x2,df2*f2,df3*f3,d3y)
                     log+='u=%+.1e'%(u)
                     print(log)
-                self.piston.activate(dv=u*dt_ctrl)
-                self.v=self.piston.v
+                self.piston.update(dt_step,u)
+                self.v=self.piston.vol
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t,dt_store,threshold_store):
@@ -262,8 +266,6 @@ class autonomous_float():
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
             self.w += dt_step*_f/self.m
-            #if usepiston:
-            #    self.v = self.piston.v
             t+=dt_step
         print('... time stepping done')
        
@@ -276,64 +278,193 @@ class autonomous_float():
         return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
 
-#------------------------------------------------------------------------------------------------------------    
-    
-class piston():
-    ''' Piston object, facilitate float buoyancy control
-    '''
-    
-    def __init__(self,vmin,vmax,dv,v=None):
-        self.vmin=vmin
-        self.vmax=vmax
-        self.dv=dv
-        if v is None:
-            self.v = vmax
-        else:
-            self.v = v
+# ------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------
 
-    def __repr__(self):
-        strout='Piston parameters and state: \n'
-        strout+='  vmin = %.2f cm^3      - min volume\n'%(self.vmin*1.e6)
-        strout+='  vmax = %.2f cm^3      - max volume\n'%(self.vmax*1.e6)
-        strout+='  dv   = %.2f cm^3      - volume increments\n'%(self.dv*1.e6)
-        strout+='  v    = %.2f cm^3      - present volume addition\n'%(self.v*1.e6)
-        return strout
-    
-    def activate(self,dv=None,mindv=True,pushpull=0.):
-        if dv is None:
-            dv=self.dv*pushpull
-        if mindv and np.abs(dv)<self.dv:
-            dv=0.
-        self.v+=dv
-        self._checkbounds()
-
-    def _checkbounds(self):
-        if self.v>self.vmax:
-            self.v=self.vmax
-        if self.v<self.vmin:
-            self.v=self.vmin
-
-
-#------------------------------------------------------------------------------------------------------------
 
 class logger():
     ''' Store a log of the float trajectory
     '''
-    
-    def __init__(self,var):
+
+    def __init__(self, var):
         self.var = var
         for item in var:
-            setattr(self,item,np.array([]))
-    
-    def store(self,**kwargs):
+            setattr(self, item, np.array([]))
+
+    def store(self, **kwargs):
         for item in self.var:
             if item in kwargs:
-                    setattr(self,item,np.hstack( (getattr(self,item),kwargs[item]) ))
-        
+                setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
+
+
+#------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------
+
+
+class piston():
+    ''' Piston object, facilitate float buoyancy control
+    '''
+    
+    def __init__(self,**kwargs):
+        """ Piston object
+
+        Parameters
+        ----------
+        a: float [m]
+            piston radius
+        phi: float [rad]
+            angle of rotation
+        d: float [m]
+            current piston displacement
+        vol: float [m^3]
+            current volume
+            vol = d x pi x a^2
+        omega: float [rad/s]
+            current rotation rate, omega=dphi/dt
+        lead: float [m]
+            screw lead (i.e. displacement after one screw revolution)
+            d = phi/2/pi x lead
+        phi_max: float [rad]
+            maximum angle of rotation
+        phi_min: float [rad]
+            minimum angle of rotation
+        d_max: float [m]
+            screw displacement when piston is fully out
+        d_min: float [m]
+            screw displacement when piston is fully in
+        vol_max: float [m^3]
+            volume when piston is fully out
+        vol_min: float [m^3]
+            volume when piston is fully in
+        omega_max: float [rad/s]
+            maximum rotation rate
+        omega_min: float [rad/s]
+            minimum rotation rate
+
+        """
+        # default parameters: ENSTA float
+        params = {'a': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
+                  'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
+                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.}
+        #
+        params.update(kwargs)
+        for key,val in params.items():
+            setattr(self,key,val)
+        # assumes here volumes are given
+        #if 'd_min' not in kwargs:
+        #    self.d_min = self.vol2d(self.vol_min)
+        # (useless as will reset d_min to 0.)
+        if 'vol_max' in kwargs:
+            self.d_max = self.vol2d(self.vol_max)
+            print('Piston max displacement set from max volume')
+        elif 'd_max' in kwargs:
+            self.vol_max = self.d2vol(self.d_max)
+            print('Piston max volume set from max displacement')
+        else:
+            print('You need to provide d_max or vol_max')
+            sys.exit()
+        #
+        self.phi_max = self.d2phi(self.d_max)
+        self.update_dvdt()
+
+    def __repr__(self):
+        strout='Piston parameters and state: \n'
+        strout+='  a     = %.2f cm        - piston radius\n'%(self.a*1.e2)
+        strout+='  phi   = %.2f rad       - present angle of rotation\n'%(self.phi)
+        strout+='  d     = %.2f cm        - present piston displacement\n'%(self.d*1.e2)
+        strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
+        strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
+        strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
+        strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
+        strout+='  d_max = %.2f cm        - maximum piston displacement\n'%(self.d_max*1.e2)
+        strout+='  d_min = %.2f cm        - minimum piston displacement\n'%(self.d_min*1.e2)
+        strout+='  vol_min = %.2f cm^3    - min volume displaced\n'%(self.vol_min*1.e6)
+        strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
+        strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
+        strout+='  omega_min = %.2f deg/s - minimum rotation rate\n'%(self.omega_min*180./np.pi)
+        return strout
+
+#------------------------------------------- update methods -----------------------------------------------
+
+    def update(self,dt,dvdt):
+        """ Update piston position given time interval and desired volume change
+
+        Parameters
+        ----------
+        dt: float
+            time interval
+        dvdt: float
+            desired volume change
+        """
+        omega=self.dvdt2omega(dvdt)
+        self.update_omega(omega)
+        self.update_dvdt()
+        self.update_phi(dt)
+
+    def update_phi(self,dt):
+        self.phi+=self.omega*dt
+        self._checkbounds()
+        self._bcast_phi()
+
+    def update_vol(self,vol):
+        self.phi=self.vol2phi(vol)
+        self._checkbounds()
+        self._bcast_phi()
+
+    def update_omega(self,omega):
+        if np.abs(omega)<self.omega_min:
+            self.omega=0.
+        else:
+            self.omega=np.sign(omega)*np.amin([np.abs(omega),self.omega_max])
+
+    def update_dvdt(self):
+        self.dvdt = self.omega2dvdt(self.omega)
+
+    def _bcast_phi(self):
+        self.d = self.phi2d(self.phi)
+        self.vol = self.phi2vol(self.phi)
+
+#------------------------------------------- conversion methods -----------------------------------------------
+
+    def omega2dvdt(self,omega):
+        # /np.pi*np.pi has been simplified
+        return omega*self.lead/2.*self.a**2
+
+    def dvdt2omega(self,dvdt):
+        # /np.pi*np.pi has been simplified
+        return dvdt/(self.lead/2.*self.a**2)
+
+    def phi2d(self,phi):
+        return self.d_min+(phi-self.phi_min)/2./np.pi*self.lead
+
+    def phi2vol(self,phi):
+        return self.d2vol(self.phi2d(phi))
+
+    def d2phi(self,d):
+        return self.phi_min+(d-self.d_min)*2.*np.pi/self.lead
+
+    def d2vol(self,d):
+        return self.vol_min+(d-self.d_min)*np.pi*self.a**2
+
+    def vol2d(self,vol):
+        return self.d_min+(vol-self.vol_min)/(np.pi*self.a**2)
+
+    def vol2phi(self,vol):
+        return self.d2phi(self.vol2d(vol))
+
+    def _checkbounds(self):
+        self.phi=np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
+
+
+
+
+
 
         
 #------------------------------------------------------------------------------------------------------------
-        
+#------------------------------------------------------------------------------------------------------------
+
+
 #
 class waterp():
     ''' Data holder for a water column based on climatology
