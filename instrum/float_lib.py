@@ -10,19 +10,65 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
 
+
+#------------------------------------------------------------------------------------------------------------
+# utils functions
+
 # 
 g=9.81
 
 #
-def t_modulo_dt(t,dt,threshold):
+def t_modulo_dt(t,dt,dt_step):
+    threshold = 0.25* dt_step/dt
     if np.abs(t/dt-np.rint(t/dt)) < threshold:
         return True
     else:
         return False
 
-def interp(z_in,v_in,z_out):
+def interp(z_in,v_in,z_out):    
     return interp1d(z_in,v_in,kind='linear',fill_value='extrapolate')(z_out)
+        
+def plot_log(f,z_target=None,eta=None,title=None):
+    log=f.log
+    t = log.t
+    plt.figure(figsize=(10,10))
+    ax=plt.subplot(221)
+    ax.plot(t/60.,log.z)
+    if z_target is not None:
+        ax.plot(t/60.,z_target(t),color='r',label='target')
+        if eta is not None:
+            ax.plot(t/60.,z_target(t)+eta(t),color='green',label='target+eta')
+    ax.legend()
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('z [m]')
+    if title is not None:
+        ax.set_title(title)
+    ax.grid()
+    #
+    ax=plt.subplot(222,sharex=ax)
+    ax.plot(t/60.,log.w)
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('dzdt [m/s]')
+    ax.grid()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
 
+    ax=plt.subplot(223)
+    ax.plot(t/60.,log.v*1.e6,'-')
+    ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
+    ax.axhline(f.piston.vmin*1.e6,ls='--',color='k')
+    ax.axhline(f.piston.vmax*1.e6,ls='--',color='k')
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('v [cm^3]')
+    ax.grid()
+
+    ax=plt.subplot(224,sharex=ax)
+    ax.plot(t/60.,log.dwdt)
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('d2zdt2 [m/s^2]')
+    ax.grid()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
 
 
 #------------------------------------------------------------------------------------------------------------
@@ -109,7 +155,7 @@ class autonomous_float():
             self.m = m
             return rho_eq-self.rho(p=p_eq,temp=temp_eq)
         m0=self.m
-        self.m = fsolve(func,self.m)
+        self.m = fsolve(func,self.m)[0]
         print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
 
     def init_piston(self,**kwargs):
@@ -190,13 +236,28 @@ class autonomous_float():
         return fmax, fmin, afmax, wmax        
         
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
-                  z=0.,w=0.,v=None,t0=0.,Lv=None, \
-                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, log=True,**kwargs):
+                  z=None,w=None,v=None,t0=0.,Lv=None, \
+                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, \
+                  eta=lambda t: 0., \
+                  log=True,**kwargs):
         ''' Time step the float position given initial conditions
         '''
         t=t0
+        #
+        if z is None:
+            if not hasattr(self,'z'):
+                z=0.
+            else:
+                z=self.z
         self.z = z
+        #
+        if w is None:
+            if not hasattr(self,'w'):
+                w=0.
+            else:
+                w=self.w
         self.w = w
+        #
         if usepiston:
             if v is not None:
                 self.piston.update_vol(v)
@@ -211,15 +272,6 @@ class autonomous_float():
             Lv=self.L
         self.Lv=Lv
         #
-        if dt_store is not None:
-            threshold_store = 0.5* dt_step/dt_store
-        #
-        #if dt_ctrl is not None:
-        #    threshold_ctrl = 0.5* dt_step/dt_ctrl
-        #else:
-        #    dt_ctrl = dt_step
-        #    threshold_ctrl = 0.5* dt_step/dt_ctrl
-        #
         if log:
             if hasattr(self,'log'):
                 delattr(self,'log')        
@@ -231,9 +283,10 @@ class autonomous_float():
         while t<t0+T:
             #
             # get vertical force on float
+            waterp.eta=eta(t) # update isopycnal displacement
             _f = self._f(self.z,waterp,Lv)
             # control starts here
-            #if usepiston and t_modulo_dt(t,dt_ctrl,threshold_ctrl):
+            #if usepiston and t_modulo_dt(t,dt_ctrl,dt_step):
             if usepiston:
                 z_t = z_target(t)
                 dz_t = (z_target(t+.05)-z_target(t-.05))/.1
@@ -260,7 +313,7 @@ class autonomous_float():
                 self.v=self.piston.vol
             # store
             if log:
-                if (dt_store is not None) and t_modulo_dt(t,dt_store,threshold_store):
+                if (dt_store is not None) and t_modulo_dt(t,dt_store,dt_step):
                     self.log.store(t=t,z=self.z,w=self.w,v=self.v,dwdt=_f/self.m)
             # update variables
             self.z += dt_step*self.w
@@ -494,7 +547,11 @@ class waterp():
             nc = Dataset(self._sfile,'r')
             self.s = nc.variables['s_an'][0,:,ilat,ilon]
             nc.close()
-            #
+            # derive absolute salinity and conservative temperature
+            self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+            self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+            # isopycnal displacement
+            self.eta=0.
 
     
     def show_on_map(self):
@@ -533,37 +590,47 @@ class waterp():
         plt.grid()
         return strout
 
-    def get_temp(self,z,eta=0.):
+    def get_temp(self,z):
         ''' get in situ temperature
         '''
-        return interp(self.z,self.temp,z)
-
-    def get_s(self,z,eta=0.):
+        #return interp(self.z, self.temp, z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        p = self.get_p(z)
+        return gsw.conversions.t_from_CT(SA,CT,p)
+                        
+    def get_s(self,z):
         ''' get practical salinity
         '''
-        return interp(self.z,self.s,z)
+        return interp(self.z, self.s, z-self.eta)
 
-    def get_p(self,z,eta=0.):
+    def get_p(self,z):
         ''' get pressure
         '''
-        return interp(self.z,self.p,z)
+        return interp(self.z, self.p, z)
 
-    def get_theta(self,z,eta=0.):
+    def get_theta(self,z):
         ''' get potential temperature
         '''
-        pass
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.conversions.pt_from_CT(SA,CT)
     
-    def get_rho(self,z,eta=0.,ignore_temp=False):
-        s = self.get_s(z,eta=eta)
-        p = self.get_p(z,eta=eta)
-        SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
+    def get_rho(self,z, ignore_temp=False):
+        #s = self.get_s(z,eta=eta)
+        p = self.get_p(z)
+        #SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
+        SA = interp(self.z, self.SA, z-self.eta)
         #
-        temp = self.get_temp(z,eta=eta)
+        #temp = self.get_temp(z,eta=eta)
+        #if ignore_temp:
+        #    temp[:]=self.temp[0]
+        #    print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
+        #CT = gsw.CT_from_t(SA, temp, p)
+        CT = interp(self.z, self.CT, z-self.eta)
         if ignore_temp:
-            temp[:]=self.temp[0]
-            print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
-        CT = gsw.CT_from_t(SA, temp, p)
-        #
+            CT[:]=self.CT[0]
+            print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
 
 
