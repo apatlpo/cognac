@@ -408,7 +408,7 @@ class piston():
         # default parameters: ENSTA float
         params = {'a': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
                   'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
-                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.}
+                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 0.}
         #
         params.update(kwargs)
         for key,val in params.items():
