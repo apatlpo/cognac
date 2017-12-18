@@ -10,65 +10,8 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
 
-
-#------------------------------------------------------------------------------------------------------------
-# utils functions
-
-# 
+# useful parameters
 g=9.81
-
-#
-def t_modulo_dt(t,dt,dt_step):
-    threshold = 0.25* dt_step/dt
-    if np.abs(t/dt-np.rint(t/dt)) < threshold:
-        return True
-    else:
-        return False
-
-def interp(z_in,v_in,z_out):    
-    return interp1d(z_in,v_in,kind='linear',fill_value='extrapolate')(z_out)
-        
-def plot_log(f,z_target=None,eta=None,title=None):
-    log=f.log
-    t = log.t
-    plt.figure(figsize=(10,10))
-    ax=plt.subplot(221)
-    ax.plot(t/60.,log.z)
-    if z_target is not None:
-        ax.plot(t/60.,z_target(t),color='r',label='target')
-        if eta is not None:
-            ax.plot(t/60.,z_target(t)+eta(t),color='green',label='target+eta')
-    ax.legend()
-    ax.set_xlabel('t [min]')
-    ax.set_ylabel('z [m]')
-    if title is not None:
-        ax.set_title(title)
-    ax.grid()
-    #
-    ax=plt.subplot(222,sharex=ax)
-    ax.plot(t/60.,log.w)
-    ax.set_xlabel('t [min]')
-    ax.set_ylabel('dzdt [m/s]')
-    ax.grid()
-    ax.yaxis.set_label_position("right")
-    ax.yaxis.tick_right()
-
-    ax=plt.subplot(223)
-    ax.plot(t/60.,log.v*1.e6,'-')
-    ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
-    ax.axhline(f.piston.vmin*1.e6,ls='--',color='k')
-    ax.axhline(f.piston.vmax*1.e6,ls='--',color='k')
-    ax.set_xlabel('t [min]')
-    ax.set_ylabel('v [cm^3]')
-    ax.grid()
-
-    ax=plt.subplot(224,sharex=ax)
-    ax.plot(t/60.,log.dwdt)
-    ax.set_xlabel('t [min]')
-    ax.set_ylabel('d2zdt2 [m/s^2]')
-    ax.grid()
-    ax.yaxis.set_label_position("right")
-    ax.yaxis.tick_right()
 
 
 #------------------------------------------------------------------------------------------------------------
@@ -237,12 +180,13 @@ class autonomous_float():
         
     def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
                   z=None,w=None,v=None,t0=0.,Lv=None, \
-                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, \
+                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, dz_nochattering=0., \
                   eta=lambda t: 0., \
                   log=True,**kwargs):
         ''' Time step the float position given initial conditions
         '''
         t=t0
+        self.dz_nochattering=dz_nochattering
         #
         if z is None:
             if not hasattr(self,'z'):
@@ -289,28 +233,31 @@ class autonomous_float():
             #if usepiston and t_modulo_dt(t,dt_ctrl,dt_step):
             if usepiston:
                 z_t = z_target(t)
-                dz_t = (z_target(t+.05)-z_target(t-.05))/.1
-                d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
-                #
-                #x1=self.z
-                x2=self.w
-                #x3=self.V+self.v
-                #f1=x2
-                f2=_f/self.m
-                f3=( self.volume(z=self.z+.5,waterp=waterp) - self.volume(z=self.z-.5,waterp=waterp) )/1. *x2 # dVdz*w
-                df1, df2, df3 = self._df(z,waterp,Lv)
-                df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
-                #
-                d3y = d3y_ctrl*self._control(self.z,self.w,_f/self.m,z_t,dz_t,d2z_t,tau_ctrl)
-                u = df1*x2 + df2*f2 + df3*f3 - d3y
-                u = -u/df3
-                if False:
-                    log='df1=%+.1e df2=%+.1e df3=%+.1e '%(df1,df2,df3)
-                    log+='df1*x2=%+.1e df2*f2=%+.1e df3*f3=%+.1e, d3y=%+.1e '%(df1*x2,df2*f2,df3*f3,d3y)
-                    log+='u=%+.1e'%(u)
-                    print(log)
-                self.piston.update(dt_step,u)
-                self.v=self.piston.vol
+                if np.abs(self.z-z_t)>dz_nochattering:
+                    # activate control only if difference between the desired and actual vertical position is more
+                    # than the dz_nochattering threshold
+                    dz_t = (z_target(t+.05)-z_target(t-.05))/.1
+                    d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
+                    #
+                    #x1=self.z
+                    x2=self.w
+                    #x3=self.V+self.v
+                    #f1=x2
+                    f2=_f/self.m
+                    f3=( self.volume(z=self.z+.5,waterp=waterp) - self.volume(z=self.z-.5,waterp=waterp) )/1. *x2 # dVdz*w
+                    df1, df2, df3 = self._df(z,waterp,Lv)
+                    df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
+                    #
+                    d3y = d3y_ctrl*self._control(self.z,self.w,_f/self.m,z_t,dz_t,d2z_t,tau_ctrl)
+                    u = df1*x2 + df2*f2 + df3*f3 - d3y
+                    u = -u/df3
+                    if False:
+                        log='df1=%+.1e df2=%+.1e df3=%+.1e '%(df1,df2,df3)
+                        log+='df1*x2=%+.1e df2*f2=%+.1e df3*f3=%+.1e, d3y=%+.1e '%(df1*x2,df2*f2,df3*f3,d3y)
+                        log+='u=%+.1e'%(u)
+                        print(log)
+                    self.piston.update(dt_step,u)
+                    self.v=self.piston.vol
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t,dt_store,dt_step):
@@ -348,6 +295,69 @@ class logger():
         for item in self.var:
             if item in kwargs:
                 setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
+
+# utils
+def plot_log(f, z_target=None, eta=None, title=None):
+    log = f.log
+    t = log.t
+    #
+    plt.figure(figsize=(12, 10))
+    #
+    ax = plt.subplot(321)
+    ax.plot(t / 60., log.z, label='z')
+    if z_target is not None:
+        ax.plot(t / 60., z_target(t), color='r', label='target')
+        if eta is not None:
+            ax.plot(t / 60., z_target(t) + eta(t), color='green', label='target+eta')
+    ax.legend(loc=3)
+    # ax.set_xlabel('t [min]')
+    ax.set_ylabel('z [m]')
+    if title is not None:
+        ax.set_title(title)
+    ax.grid()
+    #
+    ax = plt.subplot(322)
+    if z_target is not None:
+        if hasattr(f, 'dz_nochattering'):
+            # (x,y) # width # height
+            ax.fill_between(t / 60., t * 0. - f.dz_nochattering, t * 0. + f.dz_nochattering,
+                            facecolor='orange', alpha=.5)
+        ax.plot(t / 60., log.z - z_target(t), label='z-ztarget')
+        # if eta is not None:
+        #    ax.plot(t/60.,z_target(t)+eta(t),color='green',label='target+eta')
+        ax.legend()
+        # ax.set_xlabel('t [min]')
+        ax.set_ylabel('z [m]')
+        ax.set_ylim([-2., 2.])
+        if title is not None:
+            ax.set_title(title)
+        ax.grid()
+    #
+    ax = plt.subplot(323, sharex=ax)
+    ax.plot(t / 60., log.w * 1.e2, label='dzdt')
+    ax.legend()
+    # ax.set_xlabel('t [min]')
+    ax.set_ylabel('[cm/s]')
+    ax.grid()
+    #
+    ax = plt.subplot(324)
+    ax.plot(t / 60., log.v * 1.e6, '-', label='v')
+    # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
+    ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='k')
+    ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='k')
+    ax.legend()
+    # ax.set_xlabel('t [min]')
+    ax.set_ylabel('[cm^3]')
+    ax.grid()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
+    #
+    ax = plt.subplot(325, sharex=ax)
+    ax.plot(t / 60., log.dwdt, label='d2zdt2')
+    ax.legend()
+    ax.set_xlabel('t [min]')
+    ax.set_ylabel('[m/s^2]')
+    ax.grid()
 
 
 #------------------------------------------------------------------------------------------------------------
@@ -634,4 +644,20 @@ class waterp():
         return gsw.density.rho(SA, CT, p)
 
 
+
+# ------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------
+# utils functions
+
+#
+def t_modulo_dt(t, dt, dt_step):
+    threshold = 0.25 * dt_step / dt
+    if np.abs(t / dt - np.rint(t / dt)) < threshold:
+        return True
+    else:
+        return False
+
+#
+def interp(z_in, v_in, z_out):
+    return interp1d(z_in, v_in, kind='linear', fill_value='extrapolate')(z_out)
 
