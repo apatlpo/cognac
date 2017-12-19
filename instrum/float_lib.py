@@ -38,9 +38,10 @@ class autonomous_float():
         params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
         params['m']= 1000. * np.pi * params['a']**2 * params['L']
         #
-        if 'ENSTA' in kwargs:
-            params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
-            params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
+        if 'model' in kwargs:
+            if kwargs['model'] is 'ENSTA':
+                params = {'a': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0.}
+                params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -60,7 +61,7 @@ class autonomous_float():
         if hasattr(self,'piston'):
             strout+=str(self.piston)
         return strout
-    
+        
     def rho(self,p=None,temp=None,v=None,z=None,waterp=None):
         ''' Returns float density i.e. mass over volume
         '''
@@ -277,7 +278,45 @@ class autonomous_float():
         '''
         return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-
+    
+#
+def compute_gamma(R,t,material=None,E=None,mu=.35):
+    """ Compute the compressibility to pressure of a cylinder
+    
+    Parameters
+    ----------
+    R: float, [m]
+        cylinder radius
+    t: float, [m]
+        cylinder thickness
+    E: float, [GPa]
+        Young's modulus
+    mu: float, []
+        Poisson ratio
+    
+    Returns
+    -------
+    gamma: float, [1/dbar]
+        approximate compressibility of the float
+        
+    """
+    pmat = {'glass': {'E': 90., 'mu': .25}, 'aluminium': {'E': 70., 'mu': .35}, \
+            'pom': {'E': 3.5, 'mu': .35}, 'polycarbonat':  {'E': 2.2, 'mu': .37}}
+    if material is not None:
+        if material in pmat:
+            E = pmat[material]['E']
+            mu = pmat[material]['mu']
+        else:
+            print('material not in our database')
+            sys.exit()
+    elif E is None:
+        print('You need to provide material or E !')
+        sys.exit()
+    # convert E to dbar
+    E=E*1.e5
+    return R*(6.-7.*mu)/2./E/t
+    
+    
 # ------------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------
 
@@ -408,7 +447,7 @@ class piston():
         # default parameters: ENSTA float
         params = {'a': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
                   'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
-                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 0.}
+                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.}
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -418,6 +457,9 @@ class piston():
         #    self.d_min = self.vol2d(self.vol_min)
         # (useless as will reset d_min to 0.)
         if 'vol_max' in kwargs:
+            if 'd_max' in kwargs:
+                self.d_max=kwargs['d_max']
+                self.vol_min = self.d2vol_no_volmin(self.d_min)
             self.d_max = self.vol2d(self.vol_max)
             print('Piston max displacement set from max volume')
         elif 'd_max' in kwargs:
@@ -509,6 +551,9 @@ class piston():
     def d2vol(self,d):
         return self.vol_min+(d-self.d_min)*np.pi*self.a**2
 
+    def d2vol_no_volmin(self,d):
+        return self.vol_max+(d-self.d_max)*np.pi*self.a**2
+        
     def vol2d(self,vol):
         return self.d_min+(vol-self.vol_min)/(np.pi*self.a**2)
 
