@@ -1,0 +1,24 @@
+MoorDyn input file of the cognac surface sources
+----------------------- LINE TYPES ------------------------------------------
+Name   Diam   MassDen     EA        BA/-zeta Can  Cat  Cdn  Cdt 
+(-)     (m)    (kg/m)     (N)       (N-s/-)  (-)  (-)  (-)  (-) 
+main   0.006    .150    384.243E6     -0.8    1.0  0.0  1.6  0.1
+---------------------- CONNECTION PROPERTIES --------------------------------
+Node Type       X       Y       Z     M     V    FX   FY   FZ   CdA  Ca 
+(-)  (-)       (m)     (m)     (m)   (kg) (m^3) (kN) (kN) (kN) (m^2) (-)
+1    connect    0      0.0    -100.0  5   .001   0    0    0   0.04   0
+2    vessel     0      0.0      0.0   0     0    0    0    0     1.   0
+---------------------- LINE PROPERTIES -------------------------------------- 
+Line LineType UnstrLen NumSegs NodeAnch NodeFair Flags/Outputs 
+(-)    (-)      (m)      (-)      (-)     (-)        (-)
+1     main     100.      50        2       1          p
+---------------------- SOLVER OPTIONS ---------------------------------------
+0.00001 dtM       - time step to use in mooring integration (s)
+3.0e6 kBot        - bottom stiffness (Pa/m)
+3.0e5 cBot        - bottom damping (Pa-s/m)
+500 WtrDpth       - water depth (m)
+1.0 dtIC          - time interval for analyzing convergence during IC gen (s)
+6000.0 TmaxIC     - max time for IC gen (s)
+4.0 CdScaleIC     - factor by which to scale drag coefficients during dynamic relaxation (-)
+0.00001 threshIC  - threshold for IC convergence (-)
+------------------------- need this line --------------------------------------
