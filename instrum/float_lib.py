@@ -179,9 +179,10 @@ class autonomous_float():
         
         return fmax, fmin, afmax, wmax        
         
-    def time_step(self, waterp,T=600., dt_step=1.,
+    def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
-                  usepiston=False, z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, dz_nochattering=0.,
+                  usepiston=False, z_target=None, 
+                  ctrl=None,
                   eta=lambda t: 0.,
                   log=['t','z','w','v','dwdt'], dt_store=60., log_nrg=True, c_friction=2., p_float=1.e5, 
                   **kwargs):
@@ -214,8 +215,6 @@ class autonomous_float():
             Target velocity as a function of time
         tau_ctrl: float
             Control time scale
-        dt_ctrl: float
-            Time interval between piston adjustements
         d3y_ctrl: float
             Sliding control parameter
         dz_nochattering: float
@@ -232,7 +231,6 @@ class autonomous_float():
             Internal float pressure in Pa
         '''
         t=t0
-        self.dz_nochattering=dz_nochattering
         #
         if z is None:
             if not hasattr(self,'z'):
@@ -253,6 +251,11 @@ class autonomous_float():
                 self.piston.update_vol(v)
             self.v=self.piston.vol
             u = 0.
+            if ctrl:
+                ctrl_default = {'tau': 60., 'dz_nochattering': 1., 'mode': 'sliding'}
+                ctrl_default.update(ctrl)
+                self.ctrl = ctrl_default
+                print(ctrl)
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -260,8 +263,8 @@ class autonomous_float():
             self.v=v
         #
         if Lv is None:
-            Lv=self.L
-        self.Lv=Lv
+            Lv = self.L
+        self.Lv = Lv
         #
         if log_nrg:
             if 'nrg' not in log:
@@ -278,36 +281,16 @@ class autonomous_float():
         while t<t0+T:
             #
             # get vertical force on float
-            waterp.eta=eta(t) # update isopycnal displacement
-            _f = self._f(self.z,waterp,Lv)
+            waterp.eta = eta(t) # update isopycnal displacement
+            _f = self._f(self.z, waterp, self.Lv)
             # control starts here
-            #if usepiston and t_modulo_dt(t,dt_ctrl,dt_step):
-            if usepiston:
-                z_t = z_target(t)
-                if np.abs(self.z-z_t)>dz_nochattering:
-                    # activate control only if difference between the desired and actual vertical position is more
-                    # than the dz_nochattering threshold
-                    dz_t = (z_target(t+.05)-z_target(t-.05))/.1
-                    d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
+            if usepiston and self.ctrl:
+                # activate control only if difference between the target and actual vertical 
+                # position is more than the dz_nochattering threshold                
+                if np.abs(self.z-z_target(t)) > self.ctrl['dz_nochattering']:
+                    u = self._control(t, waterp, z_target, _f)
                     #
-                    #x1=self.z
-                    x2=self.w
-                    #x3=self.V+self.v
-                    #f1=x2
-                    f2=_f/self.m
-                    f3=( self.volume(z=self.z+.5,waterp=waterp) - self.volume(z=self.z-.5,waterp=waterp) )/1. *x2 # dVdz*w
-                    df1, df2, df3 = self._df(z,waterp,Lv)
-                    df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
-                    #
-                    d3y = d3y_ctrl*self._control(self.z,self.w,_f/self.m,z_t,dz_t,d2z_t,tau_ctrl)
-                    u = df1*x2 + df2*f2 + df3*f3 - d3y
-                    u = -u/df3
-                    if False:
-                        log='df1=%+.1e df2=%+.1e df3=%+.1e '%(df1,df2,df3)
-                        log+='df1*x2=%+.1e df2*f2=%+.1e df3*f3=%+.1e, d3y=%+.1e '%(df1*x2,df2*f2,df3*f3,d3y)
-                        log+='u=%+.1e'%(u)
-                        print(log)
-                    self.piston.update(dt_step,u)
+                    self.piston.update(dt_step, u)
                     self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
                 if log_nrg:
@@ -324,9 +307,31 @@ class autonomous_float():
             self.w += dt_step*_f/self.m
             t+=dt_step
         print('... time stepping done')
-       
 
-    def _control(self,z,dz,d2z,z_t,dz_t,d2z_t,tau_ctrl):
+    def _control(self, t, waterp, z_target, _f):
+        z_t = z_target(t)        
+        dz_t = (z_target(t+.05)-z_target(t-.05))/.1
+        d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
+        #
+        #x1=self.z
+        x2=self.w
+        #x3=self.V+self.v
+        #f1=x2
+        f2=_f/self.m
+        f3=( self.volume(z=self.z+.5, waterp=waterp) - self.volume(z=self.z-.5, waterp=waterp) )/1. *x2 # dVdz*w
+        df1, df2, df3 = self._df(self.z, waterp, self.Lv)
+        df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
+        #
+        if self.ctrl['mode'] is 'sliding':
+            d3y = self.ctrl['d3y_ctrl']*self._control_sliding(self.z, self.w, _f/self.m, z_t, dz_t, d2z_t, self.ctrl['tau'])
+            u = df1*x2 + df2*f2 + df3*f3 - d3y
+            u = -u/df3
+        else:
+            print('!! mode '+self.ctrl['mode']+' is not implemented, exiting ...')
+            sys.exit()
+        return u
+
+    def _control_sliding(self,  z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
         ''' Several inputs are required:
         (z_target,w_target,dwdt_target) - describes the trajectory
         tau_ctrl  - a time scale of control 
@@ -418,8 +423,7 @@ def plot_log(f, z_target=None, eta=None, title=None):
         ax.plot(t / 60., z_target(t), color='r', label='target')
         if eta is not None:
             ax.plot(t / 60., z_target(t) + eta(t), color='green', label='target+eta')
-    ax.legend(loc=3)
-    # ax.set_xlabel('t [min]')
+    ax.legend(loc=0)
     ax.set_ylabel('z [m]')
     if title is not None:
         ax.set_title(title)
@@ -427,25 +431,23 @@ def plot_log(f, z_target=None, eta=None, title=None):
     #
     ax = plt.subplot(322)
     if z_target is not None:
-        if hasattr(f, 'dz_nochattering'):
+        if hasattr(f, 'ctrl'):
             # (x,y) # width # height
-            ax.fill_between(t / 60., t * 0. - f.dz_nochattering, t * 0. + f.dz_nochattering,
+            ax.fill_between(t / 60., t * 0. - f.ctrl['dz_nochattering'], t * 0. + f.ctrl['dz_nochattering'],
                             facecolor='orange', alpha=.5)
         ax.plot(t / 60., log.z - z_target(t), label='z-ztarget')
-        # if eta is not None:
-        #    ax.plot(t/60.,z_target(t)+eta(t),color='green',label='target+eta')
         ax.legend()
-        # ax.set_xlabel('t [min]')
-        ax.set_ylabel('z [m]')
+        ax.set_ylabel('[m]')
         ax.set_ylim([-2., 2.])
         if title is not None:
             ax.set_title(title)
         ax.grid()
+        ax.yaxis.set_label_position('right')
+        ax.yaxis.tick_right()        
     #
     ax = plt.subplot(323, sharex=ax)
     ax.plot(t / 60., log.w * 1.e2, label='dzdt')
     ax.legend()
-    # ax.set_xlabel('t [min]')
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
@@ -455,10 +457,9 @@ def plot_log(f, z_target=None, eta=None, title=None):
     ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='k')
     ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='k')
     ax.legend()
-    # ax.set_xlabel('t [min]')
     ax.set_ylabel('[cm^3]')
     ax.grid()
-    ax.yaxis.set_label_position("right")
+    ax.yaxis.set_label_position('right')
     ax.yaxis.tick_right()
     #
     ax = plt.subplot(325, sharex=ax)
@@ -475,8 +476,9 @@ def plot_log(f, z_target=None, eta=None, title=None):
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
         ax.grid()
+        ax.yaxis.set_label_position('right')
+        ax.yaxis.tick_right()
     
-
 
 #------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------
@@ -570,7 +572,7 @@ class piston():
 
 #------------------------------------------- update methods -----------------------------------------------
 
-    def update(self,dt,dvdt):
+    def update(self, dt, dvdt):
         """ Update piston position given time interval and desired volume change
 
         Parameters
