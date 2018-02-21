@@ -12,7 +12,7 @@ import cartopy.crs as ccrs
 
 # useful parameters
 g=9.81
-
+watth = 1e-6/3.6
 
 #------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------
@@ -179,12 +179,57 @@ class autonomous_float():
         
         return fmax, fmin, afmax, wmax        
         
-    def time_step(self,waterp,T=600.,dt_step=1.,dt_plt=None,dt_store=60., \
-                  z=None,w=None,v=None,t0=0.,Lv=None, \
-                  usepiston=False,z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, dz_nochattering=0., \
-                  eta=lambda t: 0., \
-                  log=True,**kwargs):
+    def time_step(self, waterp,T=600., dt_step=1.,
+                  z=None, w=None, v=None, t0=0., Lv=None,
+                  usepiston=False, z_target=None, tau_ctrl=60., dt_ctrl=None, d3y_ctrl=None, dz_nochattering=0.,
+                  eta=lambda t: 0.,
+                  log=['t','z','w','v','dwdt'], dt_store=60., log_nrg=True, c_friction=2., p_float=1.e5, 
+                  **kwargs):
         ''' Time step the float position given initial conditions
+        
+        Parameters
+        ----------
+            
+        waterp: water profile object
+                Contains information about the water profile
+        T: float
+            Length of the simulation in seconds
+        dt_step: float
+            Simulation time step
+        z: float
+            Initial position, 0. at the surface and negative downward
+        w: float
+            Initial vertical velocity, negative for downward motions
+        v: float
+            Initial volume adjustement (total volume is V+v)
+        t0: float
+            Initial time
+        Lv: float
+            Drag length scale
+        usepiston: boolean, default is False
+            Turns piston usage
+        z_target: function
+            Target trajectory as a function of time
+        w_target: function
+            Target velocity as a function of time
+        tau_ctrl: float
+            Control time scale
+        dt_ctrl: float
+            Time interval between piston adjustements
+        d3y_ctrl: float
+            Sliding control parameter
+        dz_nochattering: float
+            Width of the window around z_target where control is turned off
+        eta: function
+            Isopycnal displacement as a function of time
+        log: list of strings or False
+            List of variables that will logged
+        dt_store: float
+            Time interval between log storage
+        log_nrg: boolean, default is True
+            Turns on/off nrg computation and storage
+        p_float: float
+            Internal float pressure in Pa
         '''
         t=t0
         self.dz_nochattering=dz_nochattering
@@ -207,6 +252,7 @@ class autonomous_float():
             if v is not None:
                 self.piston.update_vol(v)
             self.v=self.piston.vol
+            u = 0.
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -217,10 +263,14 @@ class autonomous_float():
             Lv=self.L
         self.Lv=Lv
         #
+        if log_nrg:
+            if 'nrg' not in log:
+                log.append('nrg')
+            self.nrg = 0. # Wh
         if log:
             if hasattr(self,'log'):
-                delattr(self,'log')        
-            self.log=logger(['t','z','w','v','dwdt'])
+                delattr(self,'log')
+            self.log = logger(log)
         #
         print('Start time stepping for %d min ...'%(T/60.))
         #
@@ -258,11 +308,16 @@ class autonomous_float():
                         log+='u=%+.1e'%(u)
                         print(log)
                     self.piston.update(dt_step,u)
-                    self.v=self.piston.vol
+                    self.v = self.piston.vol
+                # energy integration, 1e4 converts from dbar to Pa
+                if log_nrg:
+                    self.nrg += dt_step * c_friction * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) * watth
             # store
             if log:
-                if (dt_store is not None) and t_modulo_dt(t,dt_store,dt_step):
-                    self.log.store(t=t,z=self.z,w=self.w,v=self.v,dwdt=_f/self.m)
+                if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
+                    self.log.store(t=t, z=self.z, w=self.w, v=self.v, dwdt=_f/self.m)
+                    if log_nrg:
+                        self.log.store(nrg=self.nrg)
             # update variables
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
@@ -281,7 +336,7 @@ class autonomous_float():
     
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
-    """ Compute the compressibility to pressure of a cylinder
+    ''' Compute the compressibility to pressure of a cylinder
     
     Parameters
     ----------
@@ -299,7 +354,7 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
     gamma: float, [1/dbar]
         approximate compressibility of the float
         
-    """
+    '''
     pmat = {'glass': {'E': 90., 'mu': .25}, 'aluminium': {'E': 70., 'mu': .35}, \
             'pom': {'E': 3.5, 'mu': .35}, 'polycarbonat':  {'E': 2.2, 'mu': .37}}
     if material is not None:
@@ -323,6 +378,12 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
 
 class logger():
     ''' Store a log of the float trajectory
+    
+    Parameters
+    ----------
+    var: list of strings
+        List containing the name of variables that will be logged
+    
     '''
 
     def __init__(self, var):
@@ -331,6 +392,15 @@ class logger():
             setattr(self, item, np.array([]))
 
     def store(self, **kwargs):
+        ''' Appends variables to the logger database:
+        
+        Usage:
+        
+        log.store(t=10., v=1.)
+        
+        The above line will append values 10. and 1. to variables t and v respectively
+        
+        '''
         for item in self.var:
             if item in kwargs:
                 setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
@@ -397,6 +467,15 @@ def plot_log(f, z_target=None, eta=None, title=None):
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
     ax.grid()
+    #
+    if hasattr(log,'nrg'):
+        ax = plt.subplot(326, sharex=ax)
+        ax.plot(t / 60., log.nrg, label='nrg')
+        ax.legend()
+        ax.set_xlabel('t [min]')
+        ax.set_ylabel('[Wh]')
+        ax.grid()
+    
 
 
 #------------------------------------------------------------------------------------------------------------
@@ -575,38 +654,46 @@ class piston():
 
 #
 class waterp():
-    ''' Data holder for a water column based on climatology
+    ''' Data holder for a water column based on the World Ocean Atlas (WOA) climatology, see:
+    https://www.nodc.noaa.gov/OC5/woa13/
+    
+    Parameters
+    ----------
+    lon: float
+        longitude of the selected location
+    lat: float
+        latitude of the selected location
+    
     '''
     
-    def __init__(self,lon=None,lat=None):
-        if lon is not None and lat is not None:
-            self._woa=True
-            #
-            self._tfile = 'woa13_decav_t00_01v2.nc'
-            nc = Dataset(self._tfile,'r')
-            #
-            glon = nc.variables['lon'][:]
-            glat = nc.variables['lat'][:]
-            ilon = np.argmin(np.abs(lon-glon))
-            ilat = np.argmin(np.abs(lat-glat))
-            self.lon = glon[ilon]
-            self.lat = glat[ilat]
-            #
-            self.z = -nc.variables['depth'][:]
-            self.p = gsw.p_from_z(self.z,self.lat)
-            #
-            self.temp = nc.variables['t_an'][0,:,ilat,ilon]
-            nc.close()
-            #
-            self._sfile = 'woa13_decav_s00_01v2.nc'
-            nc = Dataset(self._sfile,'r')
-            self.s = nc.variables['s_an'][0,:,ilat,ilon]
-            nc.close()
-            # derive absolute salinity and conservative temperature
-            self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
-            self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
-            # isopycnal displacement
-            self.eta=0.
+    def __init__(self,lon,lat):
+        self._woa=True
+        #
+        self._tfile = 'woa13_decav_t00_01v2.nc'
+        nc = Dataset(self._tfile,'r')
+        #
+        glon = nc.variables['lon'][:]
+        glat = nc.variables['lat'][:]
+        ilon = np.argmin(np.abs(lon-glon))
+        ilat = np.argmin(np.abs(lat-glat))
+        self.lon = glon[ilon]
+        self.lat = glat[ilat]
+        #
+        self.z = -nc.variables['depth'][:]
+        self.p = gsw.p_from_z(self.z,self.lat)
+        #
+        self.temp = nc.variables['t_an'][0,:,ilat,ilon]
+        nc.close()
+        #
+        self._sfile = 'woa13_decav_s00_01v2.nc'
+        nc = Dataset(self._sfile,'r')
+        self.s = nc.variables['s_an'][0,:,ilat,ilon]
+        nc.close()
+        # derive absolute salinity and conservative temperature
+        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        # isopycnal displacement
+        self.eta=0.
 
     
     def show_on_map(self):
