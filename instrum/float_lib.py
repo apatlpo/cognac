@@ -184,7 +184,8 @@ class autonomous_float():
                   usepiston=False, z_target=None, 
                   ctrl=None,
                   eta=lambda t: 0.,
-                  log=['t','z','w','v','dwdt'], dt_store=60., log_nrg=True, c_friction=2., p_float=1.e5, 
+                  log=['t','z','w','v','dwdt'], dt_store=60., 
+                  log_nrg=True, p_float=1.e5, 
                   **kwargs):
         ''' Time step the float position given initial conditions
         
@@ -213,12 +214,8 @@ class autonomous_float():
             Target trajectory as a function of time
         w_target: function
             Target velocity as a function of time
-        tau_ctrl: float
-            Control time scale
-        d3y_ctrl: float
-            Sliding control parameter
-        dz_nochattering: float
-            Width of the window around z_target where control is turned off
+        ctrl: dict
+            Contains control parameters
         eta: function
             Isopycnal displacement as a function of time
         log: list of strings or False
@@ -252,9 +249,11 @@ class autonomous_float():
             self.v=self.piston.vol
             u = 0.
             if ctrl:
-                ctrl_default = {'tau': 60., 'dz_nochattering': 1., 'mode': 'sliding'}
+                ctrl_default = {'tau': 60., 'dz_nochattering': 1., 'mode': 'sliding', 
+                                'waterp': waterp, 'Lv': self.L}
                 ctrl_default.update(ctrl)
-                self.ctrl = ctrl_default
+                ctrl = ctrl_default
+                self.ctrl = ctrl
                 print(ctrl)
         elif v is None:
             if not hasattr(self,'v'):
@@ -285,18 +284,18 @@ class autonomous_float():
             waterp.eta = eta(t) # update isopycnal displacement
             _f = self._f(self.z, waterp, self.Lv)
             # control starts here
-            if usepiston and self.ctrl:
+            if usepiston and ctrl:
                 # activate control only if difference between the target and actual vertical 
                 # position is more than the dz_nochattering threshold                
-                if np.abs(self.z-z_target(t)) > self.ctrl['dz_nochattering']:
-                    u = self._control(t, waterp, z_target, _f)
+                if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
+                    u = self._control(t, ctrl, z_target)
                     #
                     v0 = self.piston.vol
                     self.piston.update(dt_step, u)
                     self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
                 if log_nrg and (self.v != v0):
-                    self.nrg += dt_step * c_friction * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) * watth
+                    self.nrg += dt_step * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) *watth /self.piston.efficiency
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
@@ -310,7 +309,9 @@ class autonomous_float():
             t+=dt_step
         print('... time stepping done')
 
-    def _control(self, t, waterp, z_target, _f):
+    def _control(self, t, ctrl, z_target):
+        ''' Implements the control of the float position
+        '''
         z_t = z_target(t)        
         dz_t = (z_target(t+.05)-z_target(t-.05))/.1
         d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
@@ -319,17 +320,18 @@ class autonomous_float():
         x2=self.w
         #x3=self.V+self.v
         #f1=x2
-        f2=_f/self.m
-        f3=( self.volume(z=self.z+.5, waterp=waterp) - self.volume(z=self.z-.5, waterp=waterp) )/1. *x2 # dVdz*w
-        df1, df2, df3 = self._df(self.z, waterp, self.Lv)
+        f2=self._f(self.z, ctrl['waterp'], ctrl['Lv'])/self.m
+        f3=( self.volume(z=self.z+.5, waterp=ctrl['waterp']) 
+            - self.volume(z=self.z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
+        df1, df2, df3 = self._df(self.z, ctrl['waterp'], ctrl['Lv'])
         df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
         #
-        if self.ctrl['mode'] is 'sliding':
-            d3y = self.ctrl['d3y_ctrl']*self._control_sliding(self.z, self.w, _f/self.m, z_t, dz_t, d2z_t, self.ctrl['tau'])
+        if ctrl['mode'] is 'sliding':
+            d3y = ctrl['d3y_ctrl']*self._control_sliding(self.z, self.w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
             u = df1*x2 + df2*f2 + df3*f3 - d3y
             u = -u/df3
         else:
-            print('!! mode '+self.ctrl['mode']+' is not implemented, exiting ...')
+            print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
             sys.exit()
         return u
 
@@ -377,7 +379,12 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
     # convert E to dbar
     E=E*1.e5
     return R*(6.-7.*mu)/2./E/t
-    
+
+
+#class control(dict)
+#    def __repr__(self):
+        
+        
     
 # ------------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------
@@ -587,12 +594,15 @@ class piston():
             maximum rotation rate
         omega_min: float [rad/s]
             minimum rotation rate
+        efficiency: float [<1]
+            Piston efficiency, i.e. mechanical work produced over electrical work supplied
 
         """
         # default parameters: ENSTA float
         params = {'a': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
                   'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
-                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.}
+                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.,
+                  'efficiency':.1}
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -632,6 +642,7 @@ class piston():
         strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
         strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
         strout+='  omega_min = %.2f deg/s - minimum rotation rate\n'%(self.omega_min*180./np.pi)
+        strout+='  efficiency = %.2f - mechanical work produced / electrical work supplied\n'%(self.efficiency)
         return strout
 
 #------------------------------------------- update methods -----------------------------------------------
@@ -729,7 +740,7 @@ class waterp():
     
     '''
     
-    def __init__(self,lon,lat):
+    def __init__(self, lon, lat, name=None):
         self._woa=True
         #
         self._tfile = 'woa13_decav_t00_01v2.nc'
@@ -757,6 +768,9 @@ class waterp():
         self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
         # isopycnal displacement
         self.eta=0.
+        #
+        if name is None:
+            self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
 
     
     def show_on_map(self):
@@ -780,15 +794,15 @@ class waterp():
     
     def __repr__(self):
         if self._woa:
-            strout = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+            strout = self.name
         plt.figure(figsize=(7,5))
         ax = plt.subplot(121)
-        ax.plot(self.temp,self.z,'k')
+        ax.plot(self.get_temp(self.z),self.z,'k')
         ax.set_ylabel('z [m]')
         ax.set_title('in situ temperature [degC]')
         plt.grid()
         ax = plt.subplot(122)
-        ax.plot(self.s,self.z,'k')
+        ax.plot(self.get_s(self.z),self.z,'k')
         ax.set_yticklabels([])
         #ax.set_ylabel('z [m]')
         ax.set_title('practical salinity [psu]')
@@ -807,7 +821,11 @@ class waterp():
     def get_s(self,z):
         ''' get practical salinity
         '''
-        return interp(self.z, self.s, z-self.eta)
+        #return interp(self.z, self.s, z-self.eta)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        p = self.get_p(z)
+        return gsw.conversions.SP_from_SA(SA, p, self.lon, self.lat)
 
     def get_p(self,z):
         ''' get pressure
