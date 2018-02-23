@@ -261,6 +261,7 @@ class autonomous_float():
                 self.v=0.
         else:
             self.v=v
+        v0 = self.v            
         #
         if Lv is None:
             Lv = self.L
@@ -290,10 +291,11 @@ class autonomous_float():
                 if np.abs(self.z-z_target(t)) > self.ctrl['dz_nochattering']:
                     u = self._control(t, waterp, z_target, _f)
                     #
+                    v0 = self.piston.vol
                     self.piston.update(dt_step, u)
                     self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
-                if log_nrg:
+                if log_nrg and (self.v != v0):
                     self.nrg += dt_step * c_friction * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) * watth
             # store
             if log:
@@ -360,7 +362,7 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
         approximate compressibility of the float
         
     '''
-    pmat = {'glass': {'E': 90., 'mu': .25}, 'aluminium': {'E': 70., 'mu': .35}, \
+    pmat = {'glass': {'E': 90., 'mu': .25}, 'aluminium': {'E': 70., 'mu': .35},
             'pom': {'E': 3.5, 'mu': .35}, 'polycarbonat':  {'E': 2.2, 'mu': .37}}
     if material is not None:
         if material in pmat:
@@ -411,6 +413,39 @@ class logger():
                 setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
 
 # utils
+def plot_float_density(z, f, waterp):
+    ''' Plot float density with respect to that of water profile
+    
+    Parameters
+    ----------
+    z: ndarray
+        depth grid
+    f: float object
+    waterp: water profile object
+    
+    '''
+    #
+    rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
+    #
+    plt.figure()
+    ax = plt.subplot(111)
+    #
+    iz = np.argmin(np.abs(z+500))
+    rho_f = f.rho(p, temp, v=0.)
+    rho_f_vmax=f.rho(p, temp, v=f.piston.vol_max)
+    rho_f_vmin=f.rho(p, temp, v=f.piston.vol_min)
+    #
+    ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w, facecolor='red', interpolate=True)
+    ax.plot(rho_w, z, 'b', label='rho water')
+    ax.plot(rho_f_vmax, z, '-+', color='orange', label='rho float vmax', markevery=10)
+    ax.plot(rho_f_vmin, z, '--', color='orange', label='rho float vmin')
+    ax.legend()
+    ax.set_xlabel('[kg/m^3]')
+    ax.set_ylim((np.amin(z),0.))
+    ax.set_ylabel('z [m]')
+    ax.grid()
+
+#
 def plot_log(f, z_target=None, eta=None, title=None):
     log = f.log
     t = log.t
@@ -478,7 +513,36 @@ def plot_log(f, z_target=None, eta=None, title=None):
         ax.grid()
         ax.yaxis.set_label_position('right')
         ax.yaxis.tick_right()
-    
+
+
+# build scenarios
+def descent(Tmax, zt, f, waterp):
+    ''' Contruct trajectory of a descent to some depth
+    Parameters
+    ----------
+    Tmax: float
+        Time length of the trajectory in SECONDS
+    zt: target depth level
+    f: float object
+        Used to compute maximum accelerations
+    waterp: water profile object
+        Used to compute maximum accelerations
+        
+    '''
+    # compute bounds on motions
+    fmax, fmin, afmax, wmax = f.compute_bounds(waterp,-500.)
+    # build time line
+    t = np.arange(0.,Tmax,1.)
+    # build trajectory
+    z_target = np.zeros_like(t)
+    dzdt_target = -t*afmax/2./f.m
+    dzdt_target[np.where(-dzdt_target>wmax)]=-wmax
+    z_target = np.cumsum(dzdt_target*1.)
+    z_target[np.where(z_target<zt)] = zt
+
+    # convert to callable function
+    return interp1d(t, z_target, kind='linear', fill_value='extrapolate')
+
 
 #------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------
@@ -642,14 +706,11 @@ class piston():
         return self.d2phi(self.vol2d(vol))
 
     def _checkbounds(self):
-        self.phi=np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
+        self.phi = np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
 
 
 
 
-
-
-        
 #------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------
 
