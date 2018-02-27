@@ -42,6 +42,9 @@ class autonomous_float():
             if kwargs['model'] is 'ENSTA':
                 params = {'a': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0.}
                 params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
+            elif kwargs['model'] is 'IFREMER':
+                params = {'a': 0.06, 'L': 0.8, 'gamma': 3.7391e-06, 'alpha': 0., 'temp0': 0.}
+                params['m'] = 7.608               
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -52,7 +55,7 @@ class autonomous_float():
     def __repr__(self):
         strout='Float parameters: \n'
         strout+='  L     = %.2f m      - float length\n'%(self.L)
-        strout+='  a     = %.2f m      - float radius\n'%(self.a)
+        strout+='  2a    = %.2f m      - float diameter\n'%(2.*self.a)
         strout+='  m     = %.2f kg     - float radius\n'%(self.m)
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
@@ -79,10 +82,10 @@ class autonomous_float():
         else:
             print('You need to provide p/temp or z/waterp')
 
-    def volume(self,**kwargs):
+    def volume(self, **kwargs):
         ''' Returns float volume (V+v)
         '''
-        return self.m/self.rho(**kwargs)    
+        return self.m/self.rho(**kwargs)
     
     def volume4equilibrium(self,p_eq,temp_eq,rho_eq):
         ''' Find volume that needs to be added in order to be at equilibrium 
@@ -249,12 +252,18 @@ class autonomous_float():
             self.v=self.piston.vol
             u = 0.
             if ctrl:
-                ctrl_default = {'tau': 60., 'dz_nochattering': 1., 'mode': 'sliding', 
-                                'waterp': waterp, 'Lv': self.L}
+                ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding', 
+                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step}
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
                 self.ctrl = ctrl
-                print(ctrl)
+                for key, val in ctrl_default.items():
+                    if key is not 'waterp':
+                        print(' ctrl: '+key+' = '+str(val))
+                #
+                if ctrl['mode'] is 'pid':
+                    ctrl['error'] = 0.
+                    ctrl['integral'] = 0.
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -284,11 +293,11 @@ class autonomous_float():
             waterp.eta = eta(t) # update isopycnal displacement
             _f = self._f(self.z, waterp, self.Lv)
             # control starts here
-            if usepiston and ctrl:
+            if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
                 # activate control only if difference between the target and actual vertical 
                 # position is more than the dz_nochattering threshold                
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    u = self._control(t, ctrl, z_target)
+                    u = control(self.z, z_target, ctrl, t=t, w=self.w, f=self)
                     #
                     v0 = self.piston.vol
                     self.piston.update(dt_step, u)
@@ -309,38 +318,46 @@ class autonomous_float():
             t+=dt_step
         print('... time stepping done')
 
-    def _control(self, t, ctrl, z_target):
-        ''' Implements the control of the float position
-        '''
-        z_t = z_target(t)        
-        dz_t = (z_target(t+.05)-z_target(t-.05))/.1
-        d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
-        #
+#
+def control(z, z_target, ctrl, t=None, w=None, f=None):
+    ''' Implements the control of the float position
+    '''
+    z_t = z_target(t)        
+    dz_t = (z_target(t+.05)-z_target(t-.05))/.1
+    d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
+    #
+    if ctrl['mode'] is 'sliding':
+        # add tests: if w is None, if f is None ...
         #x1=self.z
-        x2=self.w
+        x2 = w
         #x3=self.V+self.v
         #f1=x2
-        f2=self._f(self.z, ctrl['waterp'], ctrl['Lv'])/self.m
-        f3=( self.volume(z=self.z+.5, waterp=ctrl['waterp']) 
-            - self.volume(z=self.z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
-        df1, df2, df3 = self._df(self.z, ctrl['waterp'], ctrl['Lv'])
-        df1, df2, df3 = df1/self.m, df2/self.m, df3/self.m
+        f2 = f._f(z, ctrl['waterp'], ctrl['Lv'])/f.m
+        f3 = ( f.volume(z=z+.5, waterp=ctrl['waterp']) 
+             - f.volume(z=z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
+        df1, df2, df3 = f._df(f.z, ctrl['waterp'], ctrl['Lv'])
+        df1, df2, df3 = df1/f.m, df2/f.m, df3/f.m
         #
-        if ctrl['mode'] is 'sliding':
-            d3y = ctrl['d3y_ctrl']*self._control_sliding(self.z, self.w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
-            u = df1*x2 + df2*f2 + df3*f3 - d3y
-            u = -u/df3
-        else:
-            print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
-            sys.exit()
-        return u
+        d3y = ctrl['d3y_ctrl']*control_sliding(z, w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
+        u = df1*x2 + df2*f2 + df3*f3 - d3y
+        u = -u/df3
+    elif ctrl['mode'] is 'pid':
+        error = z_t - z
+        ctrl['integral'] += error*ctrl['dt_ctrl']
+        ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt_ctrl']
+        ctrl['error'] = error
+        u = ctrl['Kp']*ctrl['error'] + ctrl['Ki']*ctrl['integral'] + ctrl['Kd']*ctrl['derivative']
+    else:
+        print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
+        sys.exit()
+    return u
 
-    def _control_sliding(self,  z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
-        ''' Several inputs are required:
-        (z_target,w_target,dwdt_target) - describes the trajectory
-        tau_ctrl  - a time scale of control 
-        '''
-        return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
+def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
+    ''' Several inputs are required:
+    (z_target,w_target,dwdt_target) - describes the trajectory
+    tau_ctrl  - a time scale of control 
+    '''
+    return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
     
 #
@@ -437,10 +454,10 @@ def plot_float_density(z, f, waterp):
     plt.figure()
     ax = plt.subplot(111)
     #
-    iz = np.argmin(np.abs(z+500))
-    rho_f = f.rho(p, temp, v=0.)
-    rho_f_vmax=f.rho(p, temp, v=f.piston.vol_max)
-    rho_f_vmin=f.rho(p, temp, v=f.piston.vol_min)
+    #iz = np.argmin(np.abs(z+500))
+    rho_f = f.rho(p=p, temp=temp, v=0.)
+    rho_f_vmax=f.rho(p=p, temp=temp, v=f.piston.vol_max)
+    rho_f_vmin=f.rho(p=p, temp=temp, v=f.piston.vol_min)
     #
     ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w, facecolor='red', interpolate=True)
     ax.plot(rho_w, z, 'b', label='rho water')
@@ -451,6 +468,39 @@ def plot_float_density(z, f, waterp):
     ax.set_ylim((np.amin(z),0.))
     ax.set_ylabel('z [m]')
     ax.grid()
+    iz = np.argmin(np.abs(z))
+    ax.set_title('extra mass @surface: %.1f g' %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
+    
+#
+def plot_float_volume(z, f, waterp):
+    ''' Plot float volume with respect to depth
+    
+    Parameters
+    ----------
+    z: ndarray
+        depth grid
+    f: float object
+    waterp: water profile object
+    
+    '''
+    #
+    rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)    
+    #
+    plt.figure()
+    ax = plt.subplot(111)
+    #
+    #iz = np.argmin(np.abs(z+500))
+    v = f.volume(p=p, temp=temp, v=0.)
+    vmax = f.volume(p=p, temp=temp, v=f.piston.vol_max)
+    vmin = f.volume(p=p, temp=temp, v=f.piston.vol_min)
+    #
+    ax.plot(vmax*1e6, z, '-+', color='orange', label='vmax float', markevery=10)
+    ax.plot(vmin*1e6, z, '--', color='orange', label='vmin float')
+    ax.legend()
+    ax.set_xlabel('[cm^3]')
+    ax.set_ylim((np.amin(z),0.))
+    ax.set_ylabel('z [m]')
+    ax.grid()    
 
 #
 def plot_log(f, z_target=None, eta=None, title=None):
@@ -629,15 +679,15 @@ class piston():
 
     def __repr__(self):
         strout='Piston parameters and state: \n'
-        strout+='  a     = %.2f cm        - piston radius\n'%(self.a*1.e2)
+        strout+='  2a    = %.2f mm        - piston diameter\n'%(2.*self.a*1.e3)
         strout+='  phi   = %.2f rad       - present angle of rotation\n'%(self.phi)
-        strout+='  d     = %.2f cm        - present piston displacement\n'%(self.d*1.e2)
+        strout+='  d     = %.2f mm        - present piston displacement\n'%(self.d*1.e3)
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
         strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
         strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
         strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
-        strout+='  d_max = %.2f cm        - maximum piston displacement\n'%(self.d_max*1.e2)
-        strout+='  d_min = %.2f cm        - minimum piston displacement\n'%(self.d_min*1.e2)
+        strout+='  d_max = %.2f mm        - maximum piston displacement\n'%(self.d_max*1.e3)
+        strout+='  d_min = %.2f mm        - minimum piston displacement\n'%(self.d_min*1.e3)
         strout+='  vol_min = %.2f cm^3    - min volume displaced\n'%(self.vol_min*1.e6)
         strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
         strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
