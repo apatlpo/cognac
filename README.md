@@ -17,10 +17,11 @@ All scripts require python librairies that may be installed with conda according
 
 ---
 
-In order to access jupyter working on station
+If you want to jupyter on your desktop and access it from your laptop, firt run on your desktop:
 ```
 jupyter-notebook --port=8889
 ```
+From your laptop, then run:
 ```
 ssh -N -L localhost:8889:localhost:8889
 ```
