@@ -17,7 +17,7 @@ All scripts require python librairies that may be installed with conda according
 
 ---
 
-If you want to jupyter on your desktop and access it from your laptop, firt run on your desktop:
+If you want to run jupyter on your desktop and access it from your laptop, first run on your desktop:
 ```
 jupyter-notebook --port=8889
 ```
