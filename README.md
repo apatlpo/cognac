@@ -12,10 +12,14 @@ Code relevant to underwater floats, acoustic geolocationing
 - instrum/ :  float dynamics and control
 
 
+---
+## install
+
 All scripts require python librairies that may be installed with conda according to the following instructions [here](https://github.com/apatlpo/cognac/blob/master/doc/CONDA.md)
 
 
 ---
+## run on desktop from laptop
 
 If you want to run jupyter on your desktop and access it from your laptop, first run on your desktop:
 ```
