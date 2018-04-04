@@ -10,6 +10,11 @@ conda create -n cognac -c conda-forge \
 source activate cognac
 ```
 
+Run a jupyter notebook with the following command:
+```
+jupyter-notebook
+```
+
 In order to add the environnement to kernels available to jupyter, you need to run:
 ```
 python -m ipykernel install --user --name cognac --display-name "COGNAC project env"
