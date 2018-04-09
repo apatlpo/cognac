@@ -2,7 +2,7 @@
 import sys
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.optimize import fsolve
+from scipy.optimize import fsolve, brentq
 from netCDF4 import Dataset
 import gsw
 
@@ -65,7 +65,7 @@ class autonomous_float():
             strout+=str(self.piston)
         return strout
         
-    def rho(self,p=None,temp=None,v=None,z=None,waterp=None):
+    def rho(self, p=None, temp=None, v=None, z=None, waterp=None):
         ''' Returns float density i.e. mass over volume
         '''
         if v is None:
@@ -77,8 +77,8 @@ class autonomous_float():
             return self.m/(self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0))+v)
         elif z is not None and waterp is not None:
             # assumes thermal equilibrium
-            p, tempw = waterp.get_p(self.z), waterp.get_temp(self.z)
-            return self.rho(p=p,temp=tempw,v=v)
+            p, tempw = waterp.get_p(z), waterp.get_temp(z)
+            return self.rho(p=p, temp=tempw, v=v)
         else:
             print('You need to provide p/temp or z/waterp')
 
@@ -87,20 +87,26 @@ class autonomous_float():
         '''
         return self.m/self.rho(**kwargs)
     
-    def volume4equilibrium(self,p_eq,temp_eq,rho_eq):
+    def volume4equilibrium(self, p_eq, temp_eq, rho_eq):
         ''' Find volume that needs to be added in order to be at equilibrium 
             prescribed pressure, temperature, density
         '''
-        v = fsolve(lambda x: rho_eq-self.rho(p=p_eq,temp=temp_eq,v=x),0.)[0]
+        v = fsolve(lambda x: rho_eq - self.rho(p=p_eq, temp=temp_eq, v=x),0.)[0]
         return v
 
-    def adjust_m(self,p_eq,temp_eq,rho_eq):
+    def z4equilibrium(self, waterp):
+        ''' Find depth that where float is at equilibrium
+        '''
+        z = fsolve(lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp), 0.)[0]
+        return z
+    
+    def adjust_m(self, p_eq, temp_eq, rho_eq):
         ''' Find mass that needs to be added in order to be at equilibrium 
             prescribed pressure, temperature, density
         '''
         def func(m):
             self.m = m
-            return rho_eq-self.rho(p=p_eq,temp=temp_eq)
+            return rho_eq - self.rho(p=p_eq, temp=temp_eq)
         m0=self.m
         self.m = fsolve(func,self.m)[0]
         print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
@@ -108,14 +114,26 @@ class autonomous_float():
     def init_piston(self,**kwargs):
         self.piston = piston(**kwargs)
         
-    def _f0(self,p,rhof,rhow,Lv):
-        ''' Compute the vertical force exterted on the float
-        '''
-        f = -self.m*g
-        f += self.m*rhow/rhof*g # Pi0, we ignore DwDt terms for now
-        f += -self.m/Lv*np.abs(self.w)*self.w # Pi'
-        return f
+    def piston_update_vol(self, vol=None):
+        if vol is None:
+            vol = self.piston.vol
+        else:
+            self.piston.update_vol(vol)
+        self.v = vol
 
+    def set_piston4equilibrium(self, p_eq, temp_eq, rho_eq):
+        ''' Adjust piston to be at equilibrium at a given pressure, temperature and density
+        '''
+        self.v = self.piston.vol
+        #
+        def func(vol):
+            self.piston_update_vol(vol)
+            return rho_eq - self.rho(p=p_eq, temp=temp_eq)
+        vol = brentq(func, self.piston.vol_min, self.piston.vol_max)
+        self.piston_update_vol(vol)
+        print('Piston reset : vol=%.1e cm^3  ' % (vol*1e6))
+        return vol
+        
     def _f(self,z,waterp,Lv,v=None,w=None):
         ''' Compute the vertical force exterted on the float
         '''
@@ -253,12 +271,13 @@ class autonomous_float():
             u = 0.
             if ctrl:
                 ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding', 
-                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step}
+                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step, 
+                                'f': self}
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
                 self.ctrl = ctrl
                 for key, val in ctrl_default.items():
-                    if key is not 'waterp':
+                    if key not in ['waterp','f']:
                         print(' ctrl: '+key+' = '+str(val))
                 #
                 if ctrl['mode'] is 'pid':
@@ -297,14 +316,15 @@ class autonomous_float():
                 # activate control only if difference between the target and actual vertical 
                 # position is more than the dz_nochattering threshold                
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    u = control(self.z, z_target, ctrl, t=t, w=self.w, f=self)
+                    u = control(self.z, z_target, ctrl, t=t, w=self.w, f=ctrl['f'])
                     #
                     v0 = self.piston.vol
                     self.piston.update(dt_step, u)
                     self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
                 if log_nrg and (self.v != v0):
-                    self.nrg += dt_step * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) *watth /self.piston.efficiency
+                    self.nrg += dt_step * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
+                                *watth /self.piston.efficiency
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
@@ -396,11 +416,6 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
     # convert E to dbar
     E=E*1.e5
     return R*(6.-7.*mu)/2./E/t
-
-
-#class control(dict)
-#    def __repr__(self):
-        
         
     
 # ------------------------------------------------------------------------------------------------------------
@@ -718,10 +733,15 @@ class piston():
         self._bcast_phi()
 
     def update_vol(self,vol):
-        self.phi=self.vol2phi(vol)
+        self.phi = self.vol2phi(vol)
         self._checkbounds()
         self._bcast_phi()
 
+    def update_d(self,d):
+        self.phi = self.d2phi(d)
+        self._checkbounds()
+        self._bcast_phi()
+        
     def update_omega(self,omega):
         if np.abs(omega)<self.omega_min:
             self.omega=0.
