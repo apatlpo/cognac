@@ -134,7 +134,7 @@ class autonomous_float():
         print('Piston reset : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
         
-    def _f(self,z,waterp,Lv,v=None,w=None):
+    def _f(self, z, waterp, Lv, v=None, w=None):
         ''' Compute the vertical force exterted on the float
         '''
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
@@ -145,8 +145,8 @@ class autonomous_float():
         f += self.m*rhow/rhof*g # Pi0, we ignore DwDt terms for now
         #
         if w is None:
-            w=self.w
-        f += -self.m/Lv*np.abs(w)*w # Pi'
+            w = self.w
+        f += -self.m/Lv * np.abs(w - waterp.detadt) * (w - waterp.detadt) # Pi'
         return f
     
     def _df(self,z,waterp,Lv):
@@ -309,7 +309,7 @@ class autonomous_float():
         while t<t0+T:
             #
             # get vertical force on float
-            waterp.eta = eta(t) # update isopycnal displacement
+            waterp.update_eta(eta, t) # update isopycnal displacement
             _f = self._f(self.z, waterp, self.Lv)
             # control starts here
             if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
@@ -521,6 +521,12 @@ def plot_float_volume(z, f, waterp):
 def plot_log(f, z_target=None, eta=None, title=None):
     log = f.log
     t = log.t
+    #
+    if hasattr(log,'nrg'):    
+        # extrapolate to a 30d long simulation
+        nrg = (log.nrg[-1]-log.nrg[0])/(t[-1]-t[0])
+        print( 'Extrapolated energy conssumption: %.1f Wh/day = %.1f Wh/30day'
+              %( nrg*86400, nrg*86400*30. ))
     #
     plt.figure(figsize=(12, 10))
     #
@@ -836,8 +842,9 @@ class waterp():
         # derive absolute salinity and conservative temperature
         self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
         self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
-        # isopycnal displacement
-        self.eta=0.
+        # isopycnal displacement and velocity
+        self.eta = 0.
+        self.detadt = 0.
         #
         if name is None:
             self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
@@ -888,7 +895,7 @@ class waterp():
         p = self.get_p(z)
         return gsw.conversions.t_from_CT(SA,CT,p)
                         
-    def get_s(self,z):
+    def get_s(self, z):
         ''' get practical salinity
         '''
         #return interp(self.z, self.s, z-self.eta)
@@ -897,35 +904,40 @@ class waterp():
         p = self.get_p(z)
         return gsw.conversions.SP_from_SA(SA, p, self.lon, self.lat)
 
-    def get_p(self,z):
+    def get_p(self, z):
         ''' get pressure
         '''
         return interp(self.z, self.p, z)
 
-    def get_theta(self,z):
+    def get_theta(self, z):
         ''' get potential temperature
         '''
         SA = interp(self.z, self.SA, z-self.eta)
         CT = interp(self.z, self.CT, z-self.eta)
         return gsw.conversions.pt_from_CT(SA,CT)
     
-    def get_rho(self,z, ignore_temp=False):
-        #s = self.get_s(z,eta=eta)
+    def get_rho(self, z, ignore_temp=False):
         p = self.get_p(z)
-        #SA = gsw.SA_from_SP(s, p, self.lon, self.lat)
         SA = interp(self.z, self.SA, z-self.eta)
-        #
-        #temp = self.get_temp(z,eta=eta)
-        #if ignore_temp:
-        #    temp[:]=self.temp[0]
-        #    print('Uses a uniform temperature in water density computation, temp= %.1f degC' %self.temp[0])
-        #CT = gsw.CT_from_t(SA, temp, p)
         CT = interp(self.z, self.CT, z-self.eta)
         if ignore_temp:
             CT[:]=self.CT[0]
             print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
-
+    
+    def update_eta(self, eta, t):
+        ''' Update isopycnal diplacement and water velocity given a function 
+        for isopycnal displacement and time
+        
+        Parameters
+        ----------
+        eta: func
+            Isopycnal as a function time
+        t: float
+            Time in seconds
+        '''
+        self.eta = eta(t)
+        self.detadt = (eta(t+.1)-eta(t-.1))/.2
 
 
 # ------------------------------------------------------------------------------------------------------------
