@@ -43,8 +43,8 @@ class autonomous_float():
                 params = {'a': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0.}
                 params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
             elif kwargs['model'] is 'IFREMER':
-                params = {'a': 0.06, 'L': 0.8, 'gamma': 3.7391e-06, 'alpha': 0., 'temp0': 0.}
-                params['m'] = 7.608               
+                params = {'a': 0.07, 'L': 0.8, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0.}
+                params['m'] = 13.315
         #
         params.update(kwargs)
         for key,val in params.items():
@@ -452,7 +452,7 @@ class logger():
                 setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
 
 # utils
-def plot_float_density(z, f, waterp):
+def plot_float_density(z, f, waterp, mid=False):
     ''' Plot float density with respect to that of water profile
     
     Parameters
@@ -461,7 +461,7 @@ def plot_float_density(z, f, waterp):
         depth grid
     f: float object
     waterp: water profile object
-    
+    mid: boolean, True for curve at piston mid displacement
     '''
     #
     rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
@@ -478,6 +478,9 @@ def plot_float_density(z, f, waterp):
     ax.plot(rho_w, z, 'b', label='rho water')
     ax.plot(rho_f_vmax, z, '-+', color='orange', label='rho float vmax', markevery=10)
     ax.plot(rho_f_vmin, z, '--', color='orange', label='rho float vmin')
+    if mid:
+        rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
+        ax.plot(rho_f_vmid, z, '--', color='grey', label='rho float vmid')
     ax.legend()
     ax.set_xlabel('[kg/m^3]')
     ax.set_ylim((np.amin(z),0.))
