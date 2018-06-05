@@ -7,8 +7,9 @@ bash
 conda update conda
 conda create -n cognac -c conda-forge \
     python=3.6 xarray graphviz cartopy jupyterlab gsw
-pip install git+https://github.com/dask/dask-jobqueue.git
 source activate cognac
+pip install git+https://github.com/dask/dask-jobqueue.git
+pip install cmocean
 ```
 
 Run a jupyter notebook with the following command:
