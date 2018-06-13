@@ -2,12 +2,13 @@
 import os, sys, pickle, glob
 import csv
 import numpy as np
-#import xarray as xr
+import xarray as xr
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 #from mpl_toolkits.basemap import Basemap
 import cartopy.crs as ccrs
+from cartopy.io import shapereader
 from  matplotlib.dates import date2num, datetime, num2date
 import gsw
 from scipy.interpolate import interp1d
@@ -142,9 +143,9 @@ class gps_data(object):
         '''Use deployment to clean gps data'''
         self.trim(d.start.time, d.end.time)
 
-    def plot(self, cmap, label='', linestyle='-', t0=None, t1=None, ll_lim=None, \
-             **kwargs):
-        fig, ax, crs = cmap
+    def plot(self, fac, label='', linestyle='-', lw=2., t0=None, t1=None, ll_lim=None, \
+              **kwargs):
+        fig, ax, crs = fac
         lon, lat = self.d['lon'], self.d['lat']
         if t0 is not None:
             lon = lon[t0:]
@@ -154,7 +155,7 @@ class gps_data(object):
             lat = lat[:t1]
         if ll_lim is None:
             ll_lim = ll_lim_default
-        ax.plot(lon, lat, linestyle=linestyle, transform=crs, **kwargs)
+        ax.plot(lon, lat, lw=lw, linestyle=linestyle, transform=crs, **kwargs)
         if 'marker' in kwargs:
             del kwargs['marker']
         ax.scatter(lon[0], lat[0], 10, marker='o', transform=crs, **kwargs)
@@ -245,9 +246,83 @@ def interp_gps(time, gps):
     return gps_out
 
 
+#
+# ------------------------- inclino data -----------------------------------
+#
+
+# containment and delegation
+
+class inclino(object):
+    """ Contains DST inclino data
+    """
+    def __init__(self, file=None):
+        if file is not None:
+            self.d = self.read(file)
+
+    def __str__(self):
+        return self.d.__str__()
+
+    def __getattr__(self, attr):
+        return getattr(self.d, attr)
+        #return self.d.__dict__[attr]
+        #return object.__getattribute__(self.d, attr)
+
+    def read(self, file):
+        d = pd.read_table(file,
+                             names=['sample','temp','depth','tilt_x','tilt_y','tilt_z','EAL'],
+                             comment='#', sep='\t', decimal=',', index_col=1, parse_dates=[1],
+                             encoding='iso-8859-1')
+        # dtype={'temp': np.float64} is ignored if passed to read_table
+        d.temp = d.temp.astype(float)
+        return d
+
+    def trim(self, t0=None, t1=None, d=None):
+        ''' select data between t0 and t1 '''
+        if any([t0, t1]):
+            self.d = self.d[t0:t1]
+        elif 'deployment' in str(type(d)):
+            self.d = self.d[d.start.time:d.end.time]
+        return self
+
+
+
+# ------------------------- RBR data -----------------------------------
+#
+
+# containment and delegation
+
+class rbr(object):
+    """ Contains DST inclino data
+    """
+    def __init__(self, file=None):
+        if file is not None:
+            self.d = self.read(file)
+
+    def __str__(self):
+        return self.d.__str__()
+
+    def __getattr__(self, attr):
+        return getattr(self.d, attr)
+
+    def read(self, file):
+        d = pd.read_table(file,
+                          names=['temp','pressure','sea_pressure','depth'],
+                          skiprows=[0], sep=',', decimal='.', index_col=0, parse_dates=[0])
+        # dtype={'temp': np.float64} is ignored if passed to read_table
+        d.temp = d.temp.astype(float)
+        return d
+
+    def trim(self, t0=None, t1=None, d=None):
+        ''' select data between t0 and t1 '''
+        if any([t0, t1]):
+            self.d = self.d[t0:t1]
+        elif 'deployment' in str(type(d)):
+            self.d = self.d[d.start.time:d.end.time]
+        return self
+
 
 #
-# ------------------------- GPS data -----------------------------------
+# ------------------------- source data -----------------------------------
 #
 
 
@@ -310,15 +385,20 @@ def get_distance(lon1 , lat1 , lon2 , lat2):
         lon2 = np.array(lon2)
         lat1 = np.array(lat1)
         lat2 = np.array(lat2)
-    return distance_on_spherical_earth(lon1 , lat1 , lon2 , lat2)
+    #return _distance_on_spherical_earth(lon1 , lat1 , lon2 , lat2)
     #return
-
-def distance_on_spherical_earth(lon1 , lat1 , lon2 , lat2) :
     earth_radius = 6373.e3
-    d2r=np.pi/180.
-
+    d2r = np.pi/180.
+    #
     return earth_radius * np.arccos(np.sin(d2r*lat1)*np.sin(d2r*lat2) \
                                   +np.cos(d2r*lat1)*np.cos(d2r*lat2)*np.cos(d2r*(lon2-lon1)))
+
+
+#def _distance_on_spherical_earth(lon1 , lat1 , lon2 , lat2) :
+#    earth_radius = 6373.e3
+#    d2r=np.pi/180.
+#    return earth_radius * np.arccos(np.sin(d2r*lat1)*np.sin(d2r*lat2) \
+#                                  +np.cos(d2r*lat1)*np.cos(d2r*lat2)*np.cos(d2r*(lon2-lon1)))
 
 def lstr(l):
     ''' Print lon/lat, deg + minutes decimales
@@ -326,7 +406,7 @@ def lstr(l):
     return '%d deg %.5f' %(int(l), (l-int(l))*60.)
 
 
-def plot_map(fig=None, coast_resolution='10m', figsize=(10, 10), ll_lim=None):
+def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None):
     crs = ccrs.PlateCarree()
     #
     if fig is None:
@@ -340,66 +420,38 @@ def plot_map(fig=None, coast_resolution='10m', figsize=(10, 10), ll_lim=None):
     gl = ax.gridlines(crs=crs, draw_labels=True, linewidth=2, color='k',
                       alpha=0.5, linestyle='--')
     gl.xlabels_top = False
-    ax.coastlines(resolution=coast_resolution, color='k')
+    #
+    if coast in ['10m', '50m', '110m']:
+        ax.coastlines(resolution=coast, color='k')
+    elif coast in ['auto', 'coarse', 'low', 'intermediate', 'high', 'full']:
+        shpfile = shapereader.gshhs('h')
+        shp = shapereader.Reader(shpfile)
+        ax.add_geometries(
+            shp.geometries(), crs, edgecolor='black', facecolor='none')
+    elif coast is 'med':
+        # conda install -c conda-forge gdal
+        # ogr2ogr -f "ESRI Shapefile" med_coast.shp /Users/aponte/.local/share/cartopy/shapefiles/gshhs/h/GSHHS_h_L1.shp -clipsrc 6 7 42.5 43.5
+        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_coast')
+        for record, geometry in zip(shp.records(), shp.geometries()):
+            ax.add_geometries([geometry], crs, facecolor='None', edgecolor='black')
+    elif coast is 'med_high':
+        # conda install -c conda-forge gdal
+        # ogr2ogr -f "ESRI Shapefile" med_high_coast.shp ../coastlines/lines.shp -clipsrc 6 7 42.5 43.5
+        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_high_coast')
+        for record, geometry in zip(shp.records(), shp.geometries()):
+            ax.add_geometries([geometry], crs, facecolor='None', edgecolor='black')
 
     return [fig, ax, crs]
 
-#limlon=(5.,9.);limlat=(42.,44.)
-#limlon=(6.9,7.7);limlat=(43.1,43.6)
-# clfile='pydata/cst.dat'
-# if not os.path.isfile(clfile):
-#     map=Basemap(llcrnrlon=limlon[0],llcrnrlat=limlat[0], \
-#                 urcrnrlon=limlon[1],urcrnrlat=limlat[1], \
-#                 resolution='h',projection='tmerc', \
-#                 lon_0=np.mean(limlon),lat_0=np.mean(limlat))
-#     #resolution: Default 10000,1000,100,10,1 for resolution c, l, i, h, f.
-#     clfile_hdl=open(clfile,'wb');
-#     pickle.dump((map.coastsegs,map.coastpolygons,map.coastpolygontypes,
-#                  map.landpolygons,map.lakepolygons),clfile_hdl);
-#     clfile_hdl.close()
-# else:
-#     map=Basemap(llcrnrlon=limlon[0],llcrnrlat=limlat[0], \
-#                 urcrnrlon=limlon[1],urcrnrlat=limlat[1], \
-#                 resolution='h',projection='tmerc', \
-#                 lon_0=np.mean(limlon),lat_0=np.mean(limlat))
-#     clfile_hdl=open(clfile,'rb');
-#     (map.coastsegs,map.coastpolygons,map.coastpolygontypes,map.landpolygons,map.lakepolygons)=pickle.load(clfile_hdl);
-#     clfile_hdl.close();
-# map.drawmapboundary(fill_color='white')
-# map.drawcoastlines()
-# map.fillcontinents(color='#cc9966', lake_color='#99ffff')
-# # bathy
-# plot_bathy(map)
-# # meridians on bottom and left
-# parallels = np.arange(43.2, 44, .2)
-# # labels = [left,right,top,bottom]
-# map.drawparallels(parallels, labels=[False, True, True, False])
-# meridians = np.arange(6.8, 8., .2)
-# map.drawmeridians(meridians, labels=[True, False, False, True])
-# lons = 7.3; lats = 43.575; lat_off=0.05;
-# map.drawmapscale(lons,lats,lons,lats, 10, yoffset=0.01*(map.ymax-map.ymin))
-# map.drawmapscale(lons,lats-lat_off,lons,lats-lat_off, 30, yoffset=0.01*(map.ymax-map.ymin))
-# return map
-
-
-def plot_bathy(map):
+def plot_bathy(fac):
+    fig, ax, crs = fac
     ### GEBCO bathymetry
-    nc = Dataset('../bathy/RN-1994_1473924981206/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc')
-    h = nc.variables['elevation'][:]
-    #
-    lon, lat = np.meshgrid(nc.variables['lon'], nc.variables['lat'])
-    x, y = map(lon, lat)
-    #cs = map.contourf(x, y, h, np.arange(-3000., 100., 100.), linestyles='-', cmap=plt.cm.Greys)
-    #fig.colorbar(cs, ax=ax, orientation='horizontal', shrink=.8)
-    cs = map.contour(x, y, h, [-2000., -1000., -100.], linestyles='-', colors='black', linewidths=0.5)
-    plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
-
-    # old etopo stuff
-    #nc = Dataset('/Users/aponte/matlab/BATHY/etopo2_2006apr.nc')
-    #lons, lats = np.meshgrid(nc.variables['x'], nc.variables['y'])
-    #x,y = map(lons,lats)
-    #map.contour(x,y,nc['z'][:],[-2000.,-1000.], colors='k')
-
+    bathy = os.getenv('HOME') + \
+            '/data/bathy/RN-1994_1473924981206/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
+    ds = xr.open_dataset(bathy)
+    cs = ax.contour(ds.lon, ds.lat, ds.elevation, [-2000., -1000., -500., -200., -100.],
+                    linestyles='-', colors='black', linewidths=0.5, )
+    plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9, transform=crs)
 
 
 #

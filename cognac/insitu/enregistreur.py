@@ -12,8 +12,8 @@ import pandas as pd
 import pynmea2
 
 # cognac data and tools
-from data import *
-from utils import *
+#from data import *
+from .utils import gps_data
 
 
 # flag controlling the production or not of figures
@@ -24,7 +24,6 @@ prtfig=True
 #
 # ------------------------- File in/out -----------------------------------
 #
-
 
 
 def read_logger_file(file):
@@ -41,54 +40,14 @@ def read_logger_file(file):
 
         print('Reads ' + file)
 
-        if True:
+        gpsfile = pynmea2.NMEAFile(file)
 
-            #np.genfromtxt(file, usecols=(), delimiter=',')
-
-            gpsfile = pynmea2.NMEAFile(file)
-
-            data = pd.DataFrame()
-            for d in gpsfile:
-                time = datetime.datetime.combine(d.datestamp, d.timestamp)
-                data = data.append({'lon': d.longitude, 'lat': d.latitude, 'time': time}, ignore_index=True)
-            #
-            gps.d = data.set_index('time')
-
-        else:
-
-            # open and read data
-            fptr = open(file, 'r')
-            lines = fptr.readlines()
-            fptr.close()
-
-            for i, line in enumerate(lines):
-                line = line.replace('\n', '').replace('\r', '')
-                if "$GPRMC" in line:
-                    if line.split(',')[2] == 'A':
-                        # coordinates available
-                        #print line.split(',')[1]
-                        time = float(line.split(',')[1])
-                        h = int(time / 10000)
-                        m = int( (time - h * 10000) / 100 )
-                        s =  time - h * 10000 - m * 100
-                        #
-                        #print line.split(',')[9]
-                        date = float(line.split(',')[9])
-                        day = int(date / 1e4)
-                        month = int((date - day * 1e4) / 1e2)
-                        year = 2000+int(date - day * 1e4 - month * 1e2)
-                        #
-                        lon = float(line.split(',')[5])
-                        lond = np.floor(lon / 100)
-                        lon = lond + (lon - lond * 100) / 60.
-                        #
-                        lat = float(line.split(',')[3])
-                        latd = np.floor(lat / 100)
-                        lat = latd + (lat - latd * 100) / 60.
-                        # store data
-                        #time = date2num(datetime.datetime(year, month, day, h, m, int(s)))
-                        time = datetime.datetime(year, month, day, h, m, int(s))
-                        gps.add(lon, lat, time)
+        data = pd.DataFrame()
+        for d in gpsfile:
+            time = datetime.datetime.combine(d.datestamp, d.timestamp)
+            data = data.append({'lon': d.longitude, 'lat': d.latitude, 'time': time}, ignore_index=True)
+        #
+        gps.d = data.set_index('time')
 
     return gps
 

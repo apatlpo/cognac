@@ -12,17 +12,14 @@ import datetime
 import time
 import imaplib
 import email
-from io import StringIO, BytesIO
 
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
 import warnings
 warnings.filterwarnings('ignore')
 
-#from netCDF4 import Dataset
 import xarray as xr
 
 def Interrogation_Planeurs(mailbox='INBOX', sbd_dir='../data/iridium'):
