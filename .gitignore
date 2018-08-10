@@ -25,9 +25,9 @@ flow/inspiration/
 # fig and movies
 *.png
 !instrum/float_displacement.png
+*.jpg
 !phd/schematic.jpg
 !phd/cmap.jpg
-*.jpg
 *.pdf
 *.mp4
 *.wav
