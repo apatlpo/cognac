@@ -32,6 +32,8 @@ catkin_make
 #
 import yaml
 import smtplib
+#
+sudo apt install python-pyqtgraph
 ```
 
 
