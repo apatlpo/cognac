@@ -24,7 +24,8 @@ flow/inspiration/
 
 # fig and movies
 *.png
-!instrum/float_displacement.png
+!floatdyn/float_displacement.png
+!instrum/rtsys_mission_schedule.tiff
 *.jpg
 !phd/schematic.jpg
 !phd/cmap.jpg
