@@ -6,7 +6,7 @@ Configuration wifi réseau de l'ordinateur:
 
 ```
 IPv4: Manual
-Adresse IP: 192.168.20.200
+Adresse IP: 192.168.0.42
 Sous-réseau: 255.255.255.0
 ```
 
