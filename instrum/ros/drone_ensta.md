@@ -1,3 +1,14 @@
+# a faire:
+
+- se procurer ou vérifier dispo d'un écran HDMI, usb clavier, souris
+
+- numéro de téléphone Thomas.
+
+- implémenter missions dans xml. On peut simuler mission, demander à thomas comment.
+
+- installer la synchro de l'horloge
+
+
 # fonctionnement DRONE ENSTA
 
 ## connection au drone
@@ -24,8 +35,23 @@ Note: la page de config du router 192.168.0.50 (login=admin, pas de mot de passe
 
 ## pré-deploiement
 
+- Dévisser valve (le flotteur est sous vide) 
+
+- batteries branchées: led clignote 1 fois/5s
+
+- montage: batterie d'abord (penchent un peu vers l'intérieur, un seul connecteur branché, led doit s'allumé)
+
+- batterie carte principale, les moteurs + roues codeuse + i2c alim
+(tous les cables partent vers l'intérieur)
+
+- aimant 2s allume la carte, si moteur ne s'arrête pas éteindre tout de suite. (led orange = butée basse, led rouge= se met à sortir)
+
+- vérifier et éventuellement ajuster date: `sudo date 0906142918`
+
+- `i2cdetect -y 1` pour vérifier que les canaux sont bien présents, 76 (p interne), 77 (t interne), 68 (centrale inertielle). On doit en avoir 5.
+
 - Graisser les parois du piston
-- Test piston sinus (si moteur fonction bien): `roslaunch seabot calibration_sinus.launch`
+- Test piston sinus (si moteur fonction bien): `roslaunch seabot test_sinus.launch`
 - vérifier état batterie:
 `rostopic echo driver/power/battery`
 ne doit pas être à 9V, autour de 10V il faut recharger (rapport émilie). 
@@ -59,7 +85,10 @@ screen -a
 roslaunch seabot driver.launch
 ```
 
+
 `[ctrl-A] [ctrl-D]` détache le terminal
+
+`[ctrl-D]` tue le terminal
 
 Pour se rattacher:  `screen -r (tab pour autocomplétion)`
 (zsh, roslaunch flèche du haut pour dernières commandes)
@@ -80,7 +109,10 @@ Faire le vide et monitorer la baisse de pression qui doit être quasi immédiate
 
 ### définition de la mission
 
-à faire ...
+- `roslaunch seabot mission.launch`
+
+- `seabot/mission/mission_depth_only.xml`
+
 
 ### Test équilibrage
 
@@ -144,8 +176,15 @@ clique-droit pour zoomer et pan pour explorer les données.
 ## divers:
 
 consigne=position du piston,
-0 (complétement sorti),
-2400 (complétement rentré),
+
+- 0 (complétement sorti),
+
+- 2400 (complétement rentré),
+
+- 1 = 15mg
+
+- compressibilité = 10 encoches par m
+
 à peu prêt (interrupteurs magnétiques ...),
 butée de sortie, remise à 0 possible
 

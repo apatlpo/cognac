@@ -26,7 +26,7 @@ prtfig=True
 #
 
 
-def read_logger_file(file):
+def read_logger_file(file, verbose=False):
 
     # init gps container
     gps = gps_data()
@@ -44,6 +44,8 @@ def read_logger_file(file):
 
         data = pd.DataFrame()
         for d in gpsfile:
+            if verbose:
+                print(d)
             time = datetime.datetime.combine(d.datestamp, d.timestamp)
             data = data.append({'lon': d.longitude, 'lat': d.latitude, 'time': time}, ignore_index=True)
         #

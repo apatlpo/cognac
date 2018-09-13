@@ -19,7 +19,8 @@ from netCDF4 import Dataset
 # ------------------------- Event/Deployment objects -----------------------------------
 #
 
-ll_lim_default = [6.4, 6.6, 42.92, 43.2]
+#ll_lim_default = [6.4, 6.6, 42.92, 43.2]
+ll_lim_default = [6., 6.6, 42.7, 43.2]
 
 
 def dec2sec(dec):
@@ -165,6 +166,7 @@ class gps_data(object):
         plt.text(lon[-1]+xoffset, lat[-1]-yoffset, label, fontsize=9, transform=crs, **kwargs)
 
     def plot_chunks(self, map, linestyle='-', **kwargs):
+        # needs update
         from itertools import groupby
         long = [list(v) for k, v in groupby(self.lon, np.isfinite) if k]
         latg = [list(v) for k, v in groupby(self.lat, np.isfinite) if k]
@@ -178,6 +180,7 @@ class gps_data(object):
             plt.text(x[-1] + xoffset, y[-1] - yoffset, 'd'+str(i+1), fontsize=9, **kwargs)
 
     def plot_scatter(self, map, label='', markersize=10, **kwargs):
+        # needs update
         x, y = map(np.array(self.lon), np.array(self.lat))
         map.scatter(x, y, markersize, **kwargs)
         if 'marker' in kwargs:
@@ -191,6 +194,7 @@ class gps_data(object):
         plt.text(x[-1]+xoffset, y[-1]-yoffset, label, fontsize=9, **kwargs)
 
     def fill_with_d(self, d):
+        # needs update
         # convert to array
         lon = np.array(self.lon)
         lat = np.array(self.lat)
@@ -220,6 +224,7 @@ class gps_data(object):
 
     def fill_with_deps(self, dep):
         '''wrapper for lists of deployments'''
+        # needs update
         for d in dep:
             self.fill_with_d(d)
 

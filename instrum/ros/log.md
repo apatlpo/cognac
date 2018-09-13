@@ -1,6 +1,8 @@
 
 # workspaceFlotteur compilation
 
+Pour recompilation drone ENSTA: `catkin_make -j 2`
+
 ```
 cd ~/Cognac/flotteur/workspaceFlotteur
 catkin_make
