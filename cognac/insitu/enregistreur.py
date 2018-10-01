@@ -25,6 +25,7 @@ prtfig=True
 # ------------------------- File in/out -----------------------------------
 #
 
+# shouldn't this be in utils?
 
 def read_logger_file(file, verbose=False):
 
