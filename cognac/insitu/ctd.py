@@ -6,18 +6,30 @@
 import pandas as pd
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 from bokeh.io import output_notebook, show
 from bokeh.layouts import gridplot
 from bokeh.models import ColumnDataSource, HoverTool
 from bokeh.plotting import figure
+
+import pickle
+
+ctd_attrs = ['d', 'file', 'start_date', 'dt']
 
 class ctd(object):
     """ Contains CTD cast data
     """
     def __init__(self, file, **kwargs):
         if file is not None:
-            self.d = self._read(file, **kwargs)
-            self._read_header(file)
+            self.file = file
+            if '.cnv' in file:
+                self._file_striped = self.file.rstrip('.cnv')
+                self.d = self._read_cnv(file, **kwargs)
+                self._read_cnv_header(file)
+            elif '.p' in file:
+                self._file_striped = self.file.rstrip('.p')
+                self._read_p(file)
         else:
             print('You need to provide a file name')
 
@@ -31,7 +43,8 @@ class ctd(object):
         else:
             return getattr(self.d, item)
 
-    def _read(self, file, **kwargs):
+    # IO
+    def _read_cnv(self, file, **kwargs):
         d = pd.read_table(file,
                              names=['sample','pressure','temperature',
                                     'salinity','conductivity','flag'],
@@ -51,7 +64,7 @@ class ctd(object):
         #d.index.name='time'
         return d
 
-    def _read_header(self, file):
+    def _read_cnv_header(self, file):
         with open(file) as f:
             for line in f:
                 if line.strip()[0] in ['#','*']:
@@ -67,6 +80,20 @@ class ctd(object):
                 + pd.to_timedelta(self.d.index * self.dt, unit='s')
             self.d.set_index('time', inplace=True)
 
+    #
+    def to_pickle(self, file=None):
+        dictout = {key: getattr(self,key) for key in ctd_attrs}
+        if file is None:
+            file = self._file_striped+'.p'
+        pickle.dump( dictout, open( file, 'wb' ) )
+        print('Data store to '+file)
+
+    def _read_p(self, file):
+        p = pickle.load( open( file, 'rb' ) )
+        for key in ctd_attrs:
+            setattr(self, key, p[key])
+
+    #
     def resample(self, *args, **kwargs):
         # should add option to compute in place or not
         self.d = self.d.resample(*args, **kwargs).mean()
@@ -76,7 +103,7 @@ class ctd(object):
         self.dt = (self.d.index[1]-self.d.index[0]).total_seconds()
         self.start_date = self.d.index[0]
 
-    def clean_and_depthbin(self, dp=1):
+    def clean_and_depthbin(self, dp=1, plot=False):
         ''' select descent and bin by depth
         '''
         # compute speed of descent
@@ -87,9 +114,25 @@ class ctd(object):
         #
         p = np.round(self.d.pressure/dp)
         self.d = self.d.groupby(by=p).mean()
+        #
+        if plot:
+            dpdt.plot()
+            dpdt[dpdt>threshold].plot(color='orange')
 
+    #
     def plot(self, **kwargs):
-        self.d.plot(**kwargs)
+        #self.d.plot(**kwargs)
+        Nx = 4
+        Ny = int(np.ceil(((self.d).shape[1]-1)/Nx))
+        i=1
+        plt.figure(figsize=(15,7))
+        for name, series in self.d.iteritems():
+            if not name in ['pressure', 'z']:
+                ax = plt.subplot(Ny, Nx, i)
+                ax.plot(series, -self.d.index)
+                ax.set_xlabel(name)
+                i+=1
+        plt.show()
 
     def plot_bk(self):
 
