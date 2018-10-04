@@ -33,6 +33,7 @@ flow/inspiration/
 *.pdf
 *.mp4
 *.wav
+*.p
 
 # openoffice
 *.odp#

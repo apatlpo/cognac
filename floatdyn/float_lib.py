@@ -20,10 +20,10 @@ watth = 1e-6/3.6
 
 #
 class autonomous_float():
-    
+
     def __init__(self,**kwargs):
         ''' Float constructor, the float is assumed to be a cylinder
-        
+
         Parameters
         ----------
             a : float radius [m]
@@ -32,7 +32,7 @@ class autonomous_float():
             gamma : mechanical compressibility [1/dbar]
             alpha : thermal compressibility [1/degC]
             temp0: reference temperature used for thermal compressibility [degC]
-            
+
         '''
         # default parameters
         params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
@@ -64,7 +64,7 @@ class autonomous_float():
         if hasattr(self,'piston'):
             strout+=str(self.piston)
         return strout
-        
+
     def rho(self, p=None, temp=None, v=None, z=None, waterp=None):
         ''' Returns float density i.e. mass over volume
         '''
@@ -86,9 +86,9 @@ class autonomous_float():
         ''' Returns float volume (V+v)
         '''
         return self.m/self.rho(**kwargs)
-    
+
     def volume4equilibrium(self, p_eq, temp_eq, rho_eq):
-        ''' Find volume that needs to be added in order to be at equilibrium 
+        ''' Find volume that needs to be added in order to be at equilibrium
             prescribed pressure, temperature, density
         '''
         v = fsolve(lambda x: rho_eq - self.rho(p=p_eq, temp=temp_eq, v=x),0.)[0]
@@ -99,9 +99,9 @@ class autonomous_float():
         '''
         z = fsolve(lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp), 0.)[0]
         return z
-    
+
     def adjust_m(self, p_eq, temp_eq, rho_eq):
-        ''' Find mass that needs to be added in order to be at equilibrium 
+        ''' Find mass that needs to be added in order to be at equilibrium
             prescribed pressure, temperature, density
         '''
         def func(m):
@@ -113,7 +113,7 @@ class autonomous_float():
 
     def init_piston(self,**kwargs):
         self.piston = piston(**kwargs)
-        
+
     def piston_update_vol(self, vol=None):
         if vol is None:
             vol = self.piston.vol
@@ -133,7 +133,7 @@ class autonomous_float():
         self.piston_update_vol(vol)
         print('Piston reset : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
-        
+
     def _f(self, z, waterp, Lv, v=None, w=None):
         ''' Compute the vertical force exterted on the float
         '''
@@ -148,7 +148,7 @@ class autonomous_float():
             w = self.w
         f += -self.m/Lv * np.abs(w - waterp.detadt) * (w - waterp.detadt) # Pi'
         return f
-    
+
     def _df(self,z,waterp,Lv):
         ''' Compute gradients of the vertical force exterted on the float
         '''
@@ -156,7 +156,7 @@ class autonomous_float():
         df2 = ( self._f(z,waterp,Lv,w=self.w+5.e-3) - self._f(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
         df3 = ( self._f(z,waterp,Lv,v=self.v+5.e-5) - self._f(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
         return df1, df2, df3
-        
+
     def compute_bounds(self,waterp,zmin,zmax=0.,Lv=None):
         ''' Compute approximate bounds on velocity and acceleration
         '''
@@ -197,22 +197,22 @@ class autonomous_float():
         #    print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
         #    print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
         #          %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
-        
-        return fmax, fmin, afmax, wmax        
-        
+
+        return fmax, fmin, afmax, wmax
+
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
-                  usepiston=False, z_target=None, 
+                  usepiston=False, z_target=None,
                   ctrl=None,
                   eta=lambda t: 0.,
-                  log=['t','z','w','v','dwdt'], dt_store=60., 
-                  log_nrg=True, p_float=1.e5, 
+                  log=['t','z','w','v','dwdt'], dt_store=60.,
+                  log_nrg=True, p_float=1.e5,
                   **kwargs):
         ''' Time step the float position given initial conditions
-        
+
         Parameters
         ----------
-            
+
         waterp: water profile object
                 Contains information about the water profile
         T: float
@@ -270,8 +270,8 @@ class autonomous_float():
             self.v=self.piston.vol
             u = 0.
             if ctrl:
-                ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding', 
-                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step, 
+                ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding',
+                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step,
                                 'f': self}
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
@@ -288,7 +288,7 @@ class autonomous_float():
                 self.v=0.
         else:
             self.v=v
-        v0 = self.v            
+        v0 = self.v
         #
         if Lv is None:
             Lv = self.L
@@ -313,8 +313,8 @@ class autonomous_float():
             _f = self._f(self.z, waterp, self.Lv)
             # control starts here
             if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
-                # activate control only if difference between the target and actual vertical 
-                # position is more than the dz_nochattering threshold                
+                # activate control only if difference between the target and actual vertical
+                # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
                     u = control(self.z, z_target, ctrl, t=t, w=self.w, f=ctrl['f'])
                     #
@@ -342,7 +342,7 @@ class autonomous_float():
 def control(z, z_target, ctrl, t=None, w=None, f=None):
     ''' Implements the control of the float position
     '''
-    z_t = z_target(t)        
+    z_t = z_target(t)
     dz_t = (z_target(t+.05)-z_target(t-.05))/.1
     d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
     #
@@ -353,7 +353,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
         #x3=self.V+self.v
         #f1=x2
         f2 = f._f(z, ctrl['waterp'], ctrl['Lv'])/f.m
-        f3 = ( f.volume(z=z+.5, waterp=ctrl['waterp']) 
+        f3 = ( f.volume(z=z+.5, waterp=ctrl['waterp'])
              - f.volume(z=z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
         df1, df2, df3 = f._df(f.z, ctrl['waterp'], ctrl['Lv'])
         df1, df2, df3 = df1/f.m, df2/f.m, df3/f.m
@@ -375,15 +375,15 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
 def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     ''' Several inputs are required:
     (z_target,w_target,dwdt_target) - describes the trajectory
-    tau_ctrl  - a time scale of control 
+    tau_ctrl  - a time scale of control
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-    
+
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
-    
+
     Parameters
     ----------
     R: float, [m]
@@ -394,12 +394,12 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
         Young's modulus
     mu: float, []
         Poisson ratio
-    
+
     Returns
     -------
     gamma: float, [1/dbar]
         approximate compressibility of the float
-        
+
     '''
     pmat = {'glass': {'E': 90., 'mu': .25}, 'aluminium': {'E': 70., 'mu': .35},
             'pom': {'E': 3.5, 'mu': .35}, 'polycarbonat':  {'E': 2.2, 'mu': .37}}
@@ -416,20 +416,20 @@ def compute_gamma(R,t,material=None,E=None,mu=.35):
     # convert E to dbar
     E=E*1.e5
     return R*(6.-7.*mu)/2./E/t
-        
-    
+
+
 # ------------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------------
 
 
 class logger():
     ''' Store a log of the float trajectory
-    
+
     Parameters
     ----------
     var: list of strings
         List containing the name of variables that will be logged
-    
+
     '''
 
     def __init__(self, var):
@@ -439,13 +439,13 @@ class logger():
 
     def store(self, **kwargs):
         ''' Appends variables to the logger database:
-        
+
         Usage:
-        
+
         log.store(t=10., v=1.)
-        
+
         The above line will append values 10. and 1. to variables t and v respectively
-        
+
         '''
         for item in self.var:
             if item in kwargs:
@@ -454,7 +454,7 @@ class logger():
 # utils
 def plot_float_density(z, f, waterp, mid=False):
     ''' Plot float density with respect to that of water profile
-    
+
     Parameters
     ----------
     z: ndarray
@@ -488,21 +488,21 @@ def plot_float_density(z, f, waterp, mid=False):
     ax.grid()
     iz = np.argmin(np.abs(z))
     ax.set_title('extra mass @surface: %.1f g' %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
-    
+
 #
 def plot_float_volume(z, f, waterp):
     ''' Plot float volume with respect to depth
-    
+
     Parameters
     ----------
     z: ndarray
         depth grid
     f: float object
     waterp: water profile object
-    
+
     '''
     #
-    rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)    
+    rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
     #
     plt.figure()
     ax = plt.subplot(111)
@@ -518,14 +518,14 @@ def plot_float_volume(z, f, waterp):
     ax.set_xlabel('[cm^3]')
     ax.set_ylim((np.amin(z),0.))
     ax.set_ylabel('z [m]')
-    ax.grid()    
+    ax.grid()
 
 #
 def plot_log(f, z_target=None, eta=None, title=None):
     log = f.log
     t = log.t
     #
-    if hasattr(log,'nrg'):    
+    if hasattr(log,'nrg'):
         # extrapolate to a 30d long simulation
         nrg = (log.nrg[-1]-log.nrg[0])/(t[-1]-t[0])
         print( 'Extrapolated energy conssumption: %.1f Wh/day = %.1f Wh/30day'
@@ -559,7 +559,7 @@ def plot_log(f, z_target=None, eta=None, title=None):
             ax.set_title(title)
         ax.grid()
         ax.yaxis.set_label_position('right')
-        ax.yaxis.tick_right()        
+        ax.yaxis.tick_right()
     #
     ax = plt.subplot(323, sharex=ax)
     ax.plot(t / 60., log.w * 1.e2, label='dzdt')
@@ -608,7 +608,7 @@ def descent(Tmax, zt, f, waterp):
         Used to compute maximum accelerations
     waterp: water profile object
         Used to compute maximum accelerations
-        
+
     '''
     # compute bounds on motions
     fmax, fmin, afmax, wmax = f.compute_bounds(waterp,-500.)
@@ -632,7 +632,7 @@ def descent(Tmax, zt, f, waterp):
 class piston():
     ''' Piston object, facilitate float buoyancy control
     '''
-    
+
     def __init__(self,**kwargs):
         """ Piston object
 
@@ -750,7 +750,7 @@ class piston():
         self.phi = self.d2phi(d)
         self._checkbounds()
         self._bcast_phi()
-        
+
     def update_omega(self,omega):
         if np.abs(omega)<self.omega_min:
             self.omega=0.
@@ -788,7 +788,7 @@ class piston():
 
     def d2vol_no_volmin(self,d):
         return self.vol_max+(d-self.d_max)*np.pi*self.a**2
-        
+
     def vol2d(self,vol):
         return self.d_min+(vol-self.vol_min)/(np.pi*self.a**2)
 
@@ -807,19 +807,62 @@ class piston():
 
 #
 class waterp():
-    ''' Data holder for a water column based on the World Ocean Atlas (WOA) climatology, see:
-    https://www.nodc.noaa.gov/OC5/woa13/
-    
+    ''' Data holder for a water column based on either:
+     - in situ temperature, salinity, pressure profiles
+     - the World Ocean Atlas (WOA) climatology, see:
+        https://www.nodc.noaa.gov/OC5/woa13/
+
+    Should base this on pandas !!
+
     Parameters
     ----------
-    lon: float
+    pressure: np.ndarray, optional
+        pressure in dbar
+    temperature: np.ndarray, optional
+        in situ temperature in degC
+    salinity: np.ndarray, optional
+        salinity in PSU
+    lon: float, optional
         longitude of the selected location
-    lat: float
+    lat: float, optional
         latitude of the selected location
-    
+
     '''
-    
-    def __init__(self, lon, lat, name=None):
+
+    def __init__(self, pressure=None, temperature=None, salinity=None,
+                       lon=None, lat=None, name=None):
+
+        self._pts, self._woa = False, False
+
+        if all([pressure, temperature, salinity, lon, lat]):
+            self._load_from_pts(pressure, temperature, salinity,
+                                lon, lat, name)
+        elif all([lon ,lat]):
+            self._load_from_woa(lon,lat,name)
+        else:
+            print('Inputs missing')
+
+    def _load_from_pts(self, pressure, temperature, salinity, lon, lat,
+                       name):
+        self._pts=True
+        #
+        self.lon, self.lat = lon, lat
+        #
+        self.p = pressure
+        self.z = gsw.z_from_p(self.p, self.lat)
+        #
+        self.temp, self.s = temperature, salinity
+        # derive absolute salinity and conservative temperature
+        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        # isopycnal displacement and velocity
+        self.eta = 0.
+        self.detadt = 0.
+        #
+        if name is None:
+            self.name = 'Provided water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+
+    def _load_from_woa(self, lon, lat, name):
         self._woa=True
         #
         self._tfile = 'woa13_decav_t00_01v2.nc'
@@ -852,7 +895,7 @@ class waterp():
         if name is None:
             self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
 
-    
+
     def show_on_map(self):
         if self._woa:
             nc = Dataset(self._tfile,'r')
@@ -871,10 +914,10 @@ class waterp():
             plt.colorbar(hdl,ax=ax)
             ax.set_title('sea surface temperature [degC]')
             plt.show()
-    
+        else:
+            print('No map to show')
+
     def __repr__(self):
-        if self._woa:
-            strout = self.name
         plt.figure(figsize=(7,5))
         ax = plt.subplot(121)
         ax.plot(self.get_temp(self.z),self.z,'k')
@@ -887,7 +930,7 @@ class waterp():
         #ax.set_ylabel('z [m]')
         ax.set_title('practical salinity [psu]')
         plt.grid()
-        return strout
+        return self.name
 
     def get_temp(self,z):
         ''' get in situ temperature
@@ -897,7 +940,7 @@ class waterp():
         CT = interp(self.z, self.CT, z-self.eta)
         p = self.get_p(z)
         return gsw.conversions.t_from_CT(SA,CT,p)
-                        
+
     def get_s(self, z):
         ''' get practical salinity
         '''
@@ -918,7 +961,7 @@ class waterp():
         SA = interp(self.z, self.SA, z-self.eta)
         CT = interp(self.z, self.CT, z-self.eta)
         return gsw.conversions.pt_from_CT(SA,CT)
-    
+
     def get_rho(self, z, ignore_temp=False):
         p = self.get_p(z)
         SA = interp(self.z, self.SA, z-self.eta)
@@ -927,11 +970,11 @@ class waterp():
             CT[:]=self.CT[0]
             print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
-    
+
     def update_eta(self, eta, t):
-        ''' Update isopycnal diplacement and water velocity given a function 
+        ''' Update isopycnal diplacement and water velocity given a function
         for isopycnal displacement and time
-        
+
         Parameters
         ----------
         eta: func
@@ -958,4 +1001,3 @@ def t_modulo_dt(t, dt, dt_step):
 #
 def interp(z_in, v_in, z_out):
     return interp1d(z_in, v_in, kind='linear', fill_value='extrapolate')(z_out)
-
