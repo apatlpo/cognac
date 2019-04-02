@@ -865,7 +865,7 @@ class waterp():
     def _load_from_woa(self, lon, lat, name):
         self._woa=True
         #
-        self._tfile = 'woa13_decav_t00_01v2.nc'
+        self._tfile = 'woa18_A5B7_t00_01.nc'
         nc = Dataset(self._tfile,'r')
         #
         glon = nc.variables['lon'][:]
@@ -875,13 +875,13 @@ class waterp():
         self.lon = glon[ilon]
         self.lat = glat[ilat]
         #
-        self.z = -nc.variables['depth'][:]
+        self.z = -nc.variables['depth'][:].data
         self.p = gsw.p_from_z(self.z,self.lat)
         #
         self.temp = nc.variables['t_an'][0,:,ilat,ilon]
         nc.close()
         #
-        self._sfile = 'woa13_decav_s00_01v2.nc'
+        self._sfile = 'woa18_A5B7_s00_01.nc'
         nc = Dataset(self._sfile,'r')
         self.s = nc.variables['s_an'][0,:,ilat,ilon]
         nc.close()

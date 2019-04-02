@@ -6,9 +6,9 @@ bash Miniconda3-latest-MacOSX-x86_64.sh
 bash
 conda update conda
 conda create -n cognac -c conda-forge \
-    python=3.6 xarray graphviz cartopy jupyterlab gsw
-source activate cognac
-pip install git+https://github.com/dask/dask-jobqueue.git
+    python=3.6 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
+    cartopy gsw 
+conda activate cognac
 pip install cmocean
 ```
 
@@ -57,11 +57,11 @@ conda create --name myenv python
 ```
 Switch to another environment (activate/deactivate) (or source_activate in csh)
 ```
-source activate myenv
+conda activate myenv
 ```
 To change your path from the current environment back to the root (or source_deactivate in csh)
 ```
-source deactivate
+conda deactivate
 ```
 List all environments
 ```
