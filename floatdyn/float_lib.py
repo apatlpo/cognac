@@ -26,7 +26,7 @@ class autonomous_float():
 
         Parameters
         ----------
-            a : float radius [m]
+            r : float radius [m]
             L : float length [m]
             m : float mass [kg]
             gamma : mechanical compressibility [1/dbar]
