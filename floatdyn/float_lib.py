@@ -34,18 +34,18 @@ class autonomous_float():
             alpha : thermal compressibility [1/degC]
             temp0: reference temperature used for thermal compressibility [degC]
             a : float added mass [kg] (optional)
-            c0, C1 : float drag parameters [no dimension] (optional)
+            c0, c1 : float drag parameters [no dimension] (optional)
         '''
         # default parameters
-        params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
+        params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15., 'a': 1., 'c0': 0., 'c1': 1.}
         params['m']= 1000. * np.pi * params['r']**2 * params['L']
         #
         if 'model' in kwargs:
             if kwargs['model'] is 'ENSTA':
-                params = {'r': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0., 'a': 1., 'C0': 0., 'C1': 1.}
+                params = {'r': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] is 'IFREMER':
-                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'C0': 0., 'C1': 1.}
+                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 13.315
         #
         params.update(kwargs)
@@ -54,12 +54,7 @@ class autonomous_float():
         # compute the volume of the float:
         if 'V' not in params:
             self.V = np.pi*self.r**2*self.L
-        if 'a' not in params:
-            self.a = 1
-        if 'C0' not in params:
-            self.C0 = 0
-        if 'C1' not in params:
-            self.C1 = 1
+
 
     def __repr__(self):
         strout='Float parameters: \n'
@@ -71,8 +66,8 @@ class autonomous_float():
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
         strout+='  a = %.2e  kg  - float added mass\n'%(self.a)
-        strout+='  C0 = %.2e  (no dimension)  - float drag parameter 0\n'%(self.C0)
-        strout+='  C1 = %.2e  (no dimension)  - float drag parameter 1\n'%(self.C1)
+        strout+='  c0 = %.2e  (no dimension)  - float drag parameter 0\n'%(self.c0)
+        strout+='  c1 = %.2e  (no dimension)  - float drag parameter 1\n'%(self.c1)
         if hasattr(self,'piston'):
             strout+=str(self.piston)
         return strout
@@ -292,7 +287,12 @@ class autonomous_float():
                 if ctrl['mode'] is 'feedback':
                     ctrl['tau'] = 0.1 #/s
                     ctrl['delta'] = 1. #length scale that defines the zone of influence around the target depth
-                    
+                    ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
+                    ctrl['L'] = self.L
+                    ctrl['c1'] = self.c1
+                    ctrl['m'] = self.m
+                    ctrl['a'] = self.a
+                    ctrl['waterp'] = waterp
                     
         elif v is None:
             if not hasattr(self,'v'):
@@ -381,32 +381,76 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
         u = ctrl['Kp']*ctrl['error'] + ctrl['Ki']*ctrl['integral'] + ctrl['Kd']*ctrl['derivative']
 
     elif ctrl['mode'] is 'feedback':
-        ctrl['tau']
         ctrl['ldb1'] = 2*ctrl['tau'] # /s
         ctrl['ldb2'] = ctrl['tau']**2 # /s^2
-        u = control_feedback(z, w, ctrl['ldb1'], ctrl['ldb2'])
+        u = control_feedback(z, w, f2, z_t, dz_t, ctrl['gamma'], ctrl['L'], ctrl['c1'], ctrl['m'], ctrl['a'], ctrl['waterp'], ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
         
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
         sys.exit()
     return u
 
-def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
+def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl, delta):
     ''' Several inputs are required:
     (z_target,w_target,dwdt_target) - describes the trajectory
     tau_ctrl  - a time scale of control
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-def control_feedback(z, dz, lbd1, lbd2):
-    ''' Several inputs are required:
-    (z_target,w_target,dwdt_target) - describes the trajectory
-    tau_ctrl  - a time scale of control
-    '''
-    x1 = z
-    dx1 = dz
-    return 0
+def control_feedback(z, dz, d2z, z_t, dz_t, gamma, L, c1, m, a, waterp, lbd1, lbd2, delta):
+    
+    ''' Control feedback of the float position
+    Parameters
+    ----------
 
+    z: float
+        Position of the float, 0. at the surface and negative downward
+    dz: float
+        Vertical velocity of the float, negative for downward motions
+    d2z: float
+        Vertical acceleration of the float, negative for downward accelerations
+    z_t: float
+        Target position
+    dz_t: float
+        Target velocity
+    gamma: float
+        Float mechanical compressibility
+    L: float
+        Float length
+    c1: float
+        Float drag parameter
+    m: float
+        Float mass
+    a: float
+        Float added mass
+    waterp: water profile object
+            Contains information about the water profile
+    ldb1: float
+        float control parameter 1
+    ldb2: float
+        float control parameter 2
+    delta: float
+        length scale that defines the zone of influence around the target depth
+    '''
+    
+    rho_w = waterp.get_rho(z)
+    A = g*rho_w/((a+1)*m)
+    B = c1/(2*L*(1+a))
+    x1 = -dz
+    dx1 = -d2z
+    x2 = -z
+    x2bar = z_t
+    v = dz_t
+    e = x2bar - x2
+    D = 1 + (e**2)/(delta**2)
+    y = x1 - v*np.arctan((x2bar-x2)/delta)
+    dy = dx1 + v*x1/(delta*D)
+    
+    if dz < 0:
+        return (1/A)*(lbd1*dy + lbd2*y + (v*dx1*D + 2*e*x1**2/delta**2)/(delta*D**2) + 2*B*dz) + gamma*x1
+
+    else: #dz >= 0 not differentiable at value 0 : critical value
+        return (1/A)*(lbd1*dy + lbd2*y + (v*dx1*D + 2*e*x1**2/delta**2)/(delta*D**2) - 2*B*dz) + gamma*x1
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
