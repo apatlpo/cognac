@@ -153,7 +153,7 @@ class autonomous_float():
         #
         if w is None:
             w = self.w
-        f += -self.m*self.C1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) # Pi'
+        f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) # Pi'
         return f
 
     def _df(self,z,waterp,Lv):
@@ -182,7 +182,7 @@ class autonomous_float():
         fmin=self._f(z,waterp,self.L,v=v,w=0.) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
-        wmax = np.sqrt( afmax * self.C1/(self.m*2*self.L))
+        wmax = np.sqrt( afmax * self.c1/(self.m*2*self.L))
         print('Acceleration and velocity bounds (zmin=%.0fm,zmax=%.0fm):' %(zmin,zmax))
         print('fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s' %(fmax/self.m,fmin/self.m,wmax*100.) )
         print('For accelerations, equivalent speed reached in 1min:')
@@ -390,7 +390,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
         sys.exit()
     return u
 
-def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl, delta):
+def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     ''' Several inputs are required:
     (z_target,w_target,dwdt_target) - describes the trajectory
     tau_ctrl  - a time scale of control
