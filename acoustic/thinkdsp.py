@@ -91,7 +91,7 @@ class WavFileWriter:
         self.fp.close()
 
 
-def read_wave(filename='sound.wav'):
+def read_wave(filename='sound.wav', normalize=True):
     """Reads a wave file.
 
     filename: string
@@ -123,9 +123,15 @@ def read_wave(filename='sound.wav'):
     if nchannels == 2:
         ys = ys[::2]
 
+    # normalize by format max number
+    if not normalize:
+        ys = ys / np.iinfo(dtype_map[sampwidth]).max
+        
     #ts = np.arange(len(ys)) / framerate
     wave = Wave(ys, framerate=framerate)
-    wave.normalize()
+    if normalize:
+        wave.normalize()
+        
     return wave
 
 
