@@ -63,8 +63,9 @@ class autonomous_float():
         if 'V' not in params:
             self.V = np.pi*self.r**2*self.L
 
-        params['rho_cte']= self.m / self.V
-        self.rho_cte= self.m / self.V
+        #auxiliary parameters
+        self.rho_cte= self.m / self.V #kg.m^-3
+        self.gammaV = self.gamma*self.V #m^2
         
     def __repr__(self):
         strout='Float parameters: \n'
@@ -231,25 +232,25 @@ class autonomous_float():
         waterp: water profile object
                 Contains information about the water profile
         T: float
-            Length of the simulation in seconds
+            Length of the simulation in seconds [s]
         dt_step: float
-            Simulation time step
+            Simulation time step [s]
         z: float
-            Initial position, 0. at the surface and negative downward
+            Initial position, 0. at the surface and negative downward [m]
         w: float
-            Initial vertical velocity, negative for downward motions
+            Initial vertical velocity, negative for downward motions [m.s^-1]
         v: float
-            Initial volume adjustement (total volume is V+v)
+            Initial volume adjustement (total volume is V+v) [m^3]
         t0: float
-            Initial time
+            Initial time [t]
         Lv: float
-            Drag length scale
+            Drag length scale [m]
         usepiston: boolean, default is False
-            Turns piston usage
+            Turns piston usage [no dimension]
         z_target: function
-            Target trajectory as a function of time
+            Target trajectory as a function of time [m]
         w_target: function
-            Target velocity as a function of time
+            Target velocity as a function of time [m.^s-1]
         ctrl: dict
             Contains control parameters
         eta: function
@@ -260,7 +261,7 @@ class autonomous_float():
             Time interval between log storage
         log_nrg: boolean, default is True
             Turns on/off nrg computation and storage
-        p_float: float
+        p_float: float [Pa]
             Internal float pressure in Pa
         '''
         t=t0
@@ -301,12 +302,13 @@ class autonomous_float():
                     
                 if ctrl['mode'] == 'feedback':
                     ctrl['tau'] = 0.1 # s assesed by simulation
-                    ctrl['nu'] = 1. # m.s^-1 assesed by simulation
+                    ctrl['nu'] = 0.02 # m.s^-1 assesed by simulation
                     ctrl['delta'] = 1. #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
                     ctrl['L'] = self.L
                     ctrl['c1'] = self.c1
                     ctrl['m'] = self.m
+                    ctrl['gammaV'] = self.gammaV
                     ctrl['rho'] = self.rho_cte
                     ctrl['a'] = self.a
                     ctrl['waterp'] = waterp
@@ -400,7 +402,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
     elif ctrl['mode'] == 'feedback':
         ctrl['ldb1'] = 2/ctrl['tau'] # /s
         ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
-        u = control_feedback(z, w, f2, ctrl['nu'], ctrl['gamma'], ctrl['L'], ctrl['c1'], ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
+        u = control_feedback(z, w, f2, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'], ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
         
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
@@ -414,42 +416,42 @@ def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-def control_feedback(z, dz, d2z, z_t, nu, gamma, L, c1, m, rho, a, waterp, lbd1, lbd2, delta):
+def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, lbd1, lbd2, delta):
     
     ''' Control feedback of the float position
     Parameters
     ----------
 
     z: float
-        Position of the float, 0. at the surface and negative downward
+        Position of the float, 0. at the surface and negative downward [m]
     dz: float
-        Vertical velocity of the float, negative for downward motions
+        Vertical velocity of the float, negative for downward motions [m.s^-1]
     d2z: float
-        Vertical acceleration of the float, negative for downward accelerations
+        Vertical acceleration of the float, negative for downward accelerations [m.s^-2]
     z_target: float
-        Target depth
+        Target depth [m]
     nu: float
-        Travel velocity when the float is far from the target position
+        Travel velocity when the float is far from the target position [m.s^-1]
     gamma: float
-        Float mechanical compressibility
+        Float mechanical compressibility x float volume [m^3/dbar]
     L: float
-        Float length
+        Float length [m]
     c1: float
         Float drag parameter
     m: float
-        Float mass
+        Float mass [kg]
     rho: float
-        Float constant density
+        Float constant density [kg.m^-3]
     a: float
-        Float added mass
+        Float added mass [kg]
     waterp: water profile object
             Contains information about the water profile
     ldb1: float
-        float control parameter 1
+        float control parameter 1 [s^-1]
     ldb2: float
-        float control parameter 2
+        float control parameter 2 [s^-2]
     delta: float
-        length scale that defines the zone of influence around the target depth
+        length scale that defines the zone of influence around the target depth [m]
     '''
     
     A = g*rho/((a+1)*m)
@@ -464,10 +466,10 @@ def control_feedback(z, dz, d2z, z_t, nu, gamma, L, c1, m, rho, a, waterp, lbd1,
     dy = dx1 + nu*x1/(delta*D)
     
     if dz < 0:
-        return (1/A)*(lbd1*dy + lbd2*y + (nu*dx1*D + 2*e*x1**2/delta**2)/(delta*D**2) + 2*B*dz) + gamma*x1
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*dz) + gammaV*x1
 
     else: #dz >= 0 not differentiable at value 0 : critical value
-        return (1/A)*(lbd1*dy + lbd2*y + (nu*dx1*D + 2*e*x1**2/delta**2)/(delta*D**2) - 2*B*dz) + gamma*x1
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*dz) + gammaV*x1
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
@@ -856,6 +858,10 @@ class piston():
 
     def omega2dvdt(self,omega):
         # /np.pi*np.pi has been simplified
+        #to compute omega for the ENSTA float:
+        #the motor of the piston needs 48 notches to complete a full rotation
+        #it can reach until 30 rotations a seconde
+        #so omega = 2*pi*30/48 = 3.9 rad/s
         return omega*self.lead/2.*self.r**2
 
     def dvdt2omega(self,dvdt):
