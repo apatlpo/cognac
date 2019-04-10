@@ -33,7 +33,7 @@ class autonomous_float():
             gamma : mechanical compressibility [1/dbar]
             alpha : thermal compressibility [1/degC]
             temp0: reference temperature used for thermal compressibility [degC]
-            a : float added mass [kg]
+            a : float added mass [no dimension]
             c0, c1 : float drag parameters [no dimension]
             
             All parameters are optional, default values are :
@@ -77,7 +77,7 @@ class autonomous_float():
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
-        strout+='  a = %.2e  kg  - float added mass\n'%(self.a)
+        strout+='  a = %.2e  (no dimension)  - float added mass\n'%(self.a)
         strout+='  c0 = %.2e  (no dimension)  - float drag parameter 0\n'%(self.c0)
         strout+='  c1 = %.2e  (no dimension)  - float drag parameter 1\n'%(self.c1)
         if hasattr(self,'piston'):
@@ -443,7 +443,7 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, lbd1
     rho: float
         Float constant density [kg.m^-3]
     a: float
-        Float added mass [kg]
+        Float added mass [no dimension]
     waterp: water profile object
             Contains information about the water profile
     ldb1: float
