@@ -49,8 +49,8 @@ class autonomous_float():
         params['m']= 1000. * np.pi * params['r']**2 * params['L']
         #
         if 'model' in kwargs:
-            if kwargs['model'] is 'ENSTA':
-                params = {'r': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+            if kwargs['model'] is 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
+                params = {'r': 0.06, 'L': 0.5, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] is 'IFREMER':
                 params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
@@ -198,7 +198,7 @@ class autonomous_float():
         fmin=self._f(z,waterp,self.L,v=v,w=0.) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
-        wmax = np.sqrt( afmax * self.m*2*self.Lv / self.c1)
+        wmax = np.sqrt( afmax * self.m*2*self.L / self.c1)
         print('Acceleration and velocity bounds (zmin=%.0fm,zmax=%.0fm):' %(zmin,zmax))
         print('fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s' %(fmax/self.m,fmin/self.m,wmax*100.) )
         print('For accelerations, equivalent speed reached in 1min:')
@@ -301,8 +301,8 @@ class autonomous_float():
                     ctrl['integral'] = 0.
                     
                 if ctrl['mode'] == 'feedback':
-                    ctrl['tau'] = 0.1 # s assesed by simulation
-                    ctrl['nu'] = 0.02 # m.s^-1 assesed by simulation
+                    ctrl['tau'] = -1  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl['nu'] = 2./np.pi*0.03 # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
                     ctrl['delta'] = 1. #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
                     ctrl['L'] = self.L
@@ -432,7 +432,7 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, lbd1
         Target depth [m]
     nu: float
         Travel velocity when the float is far from the target position [m.s^-1]
-    gamma: float
+    gammaV: float
         Float mechanical compressibility x float volume [m^3/dbar]
     L: float
         Float length [m]
