@@ -11,6 +11,8 @@ __pycache__/
 *.so
 flow/build/
 flow/inspiration/
+float/082218_20190416_1455_data.txt
+float/082905_20190416_1443_data.txt
 
 # eclipse related files 
 .project
@@ -22,6 +24,7 @@ flow/inspiration/
 
 # data files
 *.nc
+*.bag
 
 # fig and movies
 *.png

@@ -1,6 +1,6 @@
 
 import os, sys, pickle, glob
-import csv
+import csv, yaml
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -22,8 +22,8 @@ from netCDF4 import Dataset
 # ------------------------- Event/Deployment objects -----------------------------------
 #
 
-#ll_lim_default = [6.4, 6.6, 42.92, 43.2]
-ll_lim_default = [6., 6.6, 42.7, 43.2]
+#_ll_lim_default = [6.4, 6.6, 42.92, 43.2]
+_ll_lim_default = [6., 6.6, 42.7, 43.2]
 
 
 def dec2sec(dec):
@@ -33,9 +33,40 @@ def dec2sec(dec):
     return [idec, sec]
 
 
+class objdict0(object):
+    ''' Dict like object that treats path and color as attributes
+    '''
+    def __init__(self, *args,**kwargs):
+        self._dict= dict(*args,**kwargs)
+        if 'path' in self._dict:
+            setattr(self, 'path', self._dict['path'])
+            del self._dict['path']
+        if 'color' in self._dict:
+            setattr(self, 'color', self._dict['color'])
+            del self._dict['color']
+
+    def __getitem__(self, key):
+        if key not in ['path', 'color']:
+            val = self._dict[key]
+        return val
+
+    def __setitem__(self, key, value):
+        if key not in ['path', 'color']:
+            self._dict[key] = value
+        else:
+            setattr(self, key, value)
+
+    def __iter__(self):
+        for key, value in self._dict.items():
+            if key not in ['path', 'color']:
+                yield value
+
+    def __str__(self):
+        return self._dict.__str__()
+
 class event(object):
 
-    def __init__(self, label=None, logline=None):
+    def __init__(self, label=None, logline=None, coord_min=True):
 
         # split string
         l=logline.split()
@@ -49,9 +80,14 @@ class event(object):
                                       int(l[1][0:2]), int(l[1][3:5]), int(l[1][6:8]))
         #self.time = date2num(self.dtime)
 
-        # lon, lat data
-        self.lon = float(l[2]) + float(l[3])/60.
-        self.lat = float(l[4]) + float(l[5])/60.
+        if len(l)>2:
+            # lon, lat data
+            if coord_min:
+                self.lon = float(l[2]) + float(l[3])/60.
+                self.lat = float(l[4]) + float(l[5])/60.
+            else:
+                self.lon = float(l[2])
+                self.lat = float(l[3])
 
     def __str__(self):
         print('-')
@@ -107,6 +143,67 @@ class deployment(object):
             yoffset = 0.02 * (map.ymax - map.ymin)
             plt.text(x0+xoffset, y0-yoffset, self.label, fontsize=9, **kwargs)
         return
+
+class objdict(object):
+    ''' Dict like object that treats path and color as attributes
+    '''
+    def __init__(self, *args,**kwargs):
+        self._dict= dict(*args,**kwargs)
+
+    def __getitem__(self, key):
+        #if key not in ['path', 'color']:
+        #    val = self._dict[key]
+        #return val
+        return self._dict[key]
+
+    def __setitem__(self, key, value):
+        #if key not in ['path', 'color']:
+        #    self._dict[key] = value
+        #else:
+        #    setattr(self, key, value)
+        self._dict[key] = value
+
+    def __iter__(self):
+        for key, value in self._dict.items():
+            if key not in ['path', 'color']:
+                yield value
+
+    def __str__(self):
+        return self._dict.__str__()
+
+class campaign(object):
+    ''' Campaign object, gathers deployments information
+    '''
+
+    def __init__(self, file):
+
+        with open(file, 'r') as stream:
+            cp = yaml.load(stream)
+
+        self.name = cp['name']
+
+        if 'path' in cp:
+            self.path = cp['path']
+        else:
+            self.path = './'
+
+        self._units = {}
+        for i, idep in cp['units'].items():
+            self._units[i] = objdict(path=self.path)
+            for d, value in idep.items():
+                if d[0] is not '_':
+                    self._units[i][d] = deployment(label=d,loglines=value)
+                elif d == '_path':
+                    self._units[i]['path'] = os.path.join(self.path,value)
+                else:
+                    self._units[i][d[1:]] = value
+
+    def __getitem__(self,item):
+        if item in self._units:
+            return self._units[item]
+        else:
+            return None
+
 
 #
 # ------------------------- source data -----------------------------------
@@ -202,7 +299,7 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None):
     else:
         fig.clf()
     if ll_lim is None:
-        ll_lim = ll_lim_default
+        ll_lim = _ll_lim_default
     ax = fig.add_subplot(111, projection=crs)
     ax.set_extent(ll_lim, crs=crs)
     gl = ax.gridlines(crs=crs, draw_labels=True, linewidth=2, color='k',

@@ -29,7 +29,7 @@ class ctd(object):
                 self._read_cnv_header(file)
             elif '.p' in file:
                 self._file_striped = self.file.rstrip('.p')
-                self._read_p(file)
+                self._read_pickle(file)
         else:
             print('You need to provide a file name')
 
@@ -39,6 +39,8 @@ class ctd(object):
     def __getitem__(self, item):
         if item is 'time':
             # time or depth?
+            return self.d.index
+        elif item is 'pressure' and 'pressure' not in self.d:
             return self.d.index
         else:
             return getattr(self.d, item)
@@ -88,7 +90,7 @@ class ctd(object):
         pickle.dump( dictout, open( file, 'wb' ) )
         print('Data store to '+file)
 
-    def _read_p(self, file):
+    def _read_pickle(self, file):
         p = pickle.load( open( file, 'rb' ) )
         for key in ctd_attrs:
             setattr(self, key, p[key])
@@ -114,6 +116,7 @@ class ctd(object):
         #
         p = np.round(self.d.pressure/dp)
         self.d = self.d.groupby(by=p).mean()
+        del self.d['pressure']
         #
         if plot:
             dpdt.plot()

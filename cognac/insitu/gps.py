@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from  matplotlib.dates import date2num, datetime, num2date
 import pynmea2
 
-from .utils import ll_lim_default
+from .utils import _ll_lim_default
 
 class gps_data(object):
     ''' Data container for gps data
