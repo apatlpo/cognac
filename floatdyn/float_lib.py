@@ -279,6 +279,7 @@ class autonomous_float():
             else:
                 w=self.w
         self.w = w
+        self.dwdt = 0.
         #
         if usepiston:
             if v is not None:
@@ -301,9 +302,9 @@ class autonomous_float():
                     ctrl['integral'] = 0.
                     
                 if ctrl['mode'] == 'feedback':
-                    ctrl['tau'] = -1  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl['nu'] = 2./np.pi*0.03 # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
-                    ctrl['delta'] = 1. #length scale that defines the zone of influence around the target depth, assesed by simulation
+                    ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
                     ctrl['L'] = self.L
                     ctrl['c1'] = self.c1
@@ -346,7 +347,8 @@ class autonomous_float():
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    u = control(self.z, z_target, ctrl, t=t, w=self.w, f=ctrl['f'])
+                    u = control(self.z, z_target, ctrl, t=t, w=self.w, 
+                                dwdt=self.dwdt, f=ctrl['f'])
                     #
                     v0 = self.piston.vol
                     self.piston.update(dt_step, u)
@@ -365,11 +367,12 @@ class autonomous_float():
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
             self.w += dt_step*_f/self.m
+            self.dwdt = _f/self.m
             t+=dt_step
         print('... time stepping done')
 
 #
-def control(z, z_target, ctrl, t=None, w=None, f=None):
+def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
     ''' Implements the control of the float position
     '''
     z_t = z_target(t)
@@ -402,8 +405,10 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
     elif ctrl['mode'] == 'feedback':
         ctrl['ldb1'] = 2/ctrl['tau'] # /s
         ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
-        u = control_feedback(z, w, f2, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'], ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
-        
+        #f2 = f._f(z, ctrl['waterp'], ctrl['L'])/f.m
+        u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'], 
+                             ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], 
+                             ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
         sys.exit()
@@ -416,7 +421,8 @@ def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, lbd1, lbd2, delta):
+def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, 
+                     lbd1, lbd2, delta):
     
     ''' Control feedback of the float position
     Parameters
@@ -462,14 +468,13 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, lbd1
     x2bar = -z_t
     e = x2bar - x2
     D = 1 + (e**2)/(delta**2)
-    y = x1 - nu*np.arctan((x2bar-x2)/delta)
+    y = x1 - nu*np.arctan(e/delta)
     dy = dx1 + nu*x1/(delta*D)
     
     if dz < 0:
-        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*dz) + gammaV*x1
-
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*x1*dx1) + gammaV*x1
     else: #dz >= 0 not differentiable at value 0 : critical value
-        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*dz) + gammaV*x1
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*x1*dx1) + gammaV*x1
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
