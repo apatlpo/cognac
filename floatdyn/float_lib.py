@@ -22,45 +22,64 @@ watth = 1e-6/3.6
 class autonomous_float():
 
     def __init__(self,**kwargs):
-        ''' Float constructor, the float is assumed to be a cylinder
+        ''' Float constructor, the float is assumed to be cylinder-shaped
 
         Parameters
         ----------
-            a : float radius [m]
-            L : float length [m]
             m : float mass [kg]
+            r : float radius [m]
+            L : float length [m]
+            V : float volume [m^3]
             gamma : mechanical compressibility [1/dbar]
             alpha : thermal compressibility [1/degC]
             temp0: reference temperature used for thermal compressibility [degC]
-
+            a : float added mass [no dimension]
+            c0, c1 : float drag parameters [no dimension]
+            
+            All parameters are optional, default values are :
+            'r': 0.05
+            'L': 0.4
+            'gamma': 2.e-6
+            
+            a completer
+            
         '''
         # default parameters
-        params = {'a': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15.}
-        params['m']= 1000. * np.pi * params['a']**2 * params['L']
+        params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15., 'a': 1., 'c0': 0., 'c1': 1.}
+        params['m']= 1000. * np.pi * params['r']**2 * params['L']
         #
         if 'model' in kwargs:
-            if kwargs['model'] is 'ENSTA':
-                params = {'a': 0.06, 'L': 0.5, 'gamma': None, 'alpha': 0., 'temp0': 0.}
-                params['m'] = 1000. * np.pi * params['a'] ** 2 * params['L']
+            if kwargs['model'] is 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
+                params = {'r': 0.06, 'L': 0.5, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params['m'] = 1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] is 'IFREMER':
-                params = {'a': 0.07, 'L': 0.8, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0.}
+                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 13.315
         #
         params.update(kwargs)
         for key,val in params.items():
             setattr(self,key,val)
         # compute the volume of the float:
-        self.V = np.pi*self.a**2*self.L
+        if 'V' not in params:
+            self.V = np.pi*self.r**2*self.L
 
+        #auxiliary parameters
+        self.rho_cte= self.m / self.V #kg.m^-3
+        self.gammaV = self.gamma*self.V #m^2
+        
     def __repr__(self):
         strout='Float parameters: \n'
         strout+='  L     = %.2f m      - float length\n'%(self.L)
-        strout+='  2a    = %.2f m      - float diameter\n'%(2.*self.a)
-        strout+='  m     = %.2f kg     - float radius\n'%(self.m)
+        strout+='  r     = %.2f m      - float radius\n'%(self.r)
+        strout+='  m     = %.2f kg     - float mass\n'%(self.m)
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
+        strout+='  rho_cte     = %.2e kg.cm^3   - float constant density\n'%(self.m/self.V*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
+        strout+='  a = %.2e  (no dimension)  - float added mass\n'%(self.a)
+        strout+='  c0 = %.2e  (no dimension)  - float drag parameter 0\n'%(self.c0)
+        strout+='  c1 = %.2e  (no dimension)  - float drag parameter 1\n'%(self.c1)
         if hasattr(self,'piston'):
             strout+=str(self.piston)
         return strout
@@ -142,11 +161,15 @@ class autonomous_float():
         rhof = self.rho(p=p,temp=tempw,v=v)
         #
         f = -self.m*g
-        f += self.m*rhow/rhof*g # Pi0, we ignore DwDt terms for now
+        f += self.m*rhow/rhof*g # we ignore DwDt terms for now
         #
+        if self.c0 != 0:
+            print(' !!! linear drag coefficient not implemented yet')
+            return None
+        
         if w is None:
             w = self.w
-        f += -self.m/Lv * np.abs(w - waterp.detadt) * (w - waterp.detadt) # Pi'
+        f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) #
         return f
 
     def _df(self,z,waterp,Lv):
@@ -157,32 +180,25 @@ class autonomous_float():
         df3 = ( self._f(z,waterp,Lv,v=self.v+5.e-5) - self._f(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
         return df1, df2, df3
 
-    def compute_bounds(self,waterp,zmin,zmax=0.,Lv=None):
+    def compute_bounds(self,waterp,zmin,zmax=0.):
         ''' Compute approximate bounds on velocity and acceleration
         '''
-        #self.w=0.
-        if Lv is None:
-            if hasattr(self,'Lv'):
-                Lv=self.Lv
-            else:
-                Lv=self.L
-        #
         z=zmax
         if hasattr(self,'piston'):
             v=self.piston.vol_max
         else:
             v=None
-        fmax=self._f(z,waterp,Lv,v=v,w=0.) # upward force
+        fmax=self._f(z,waterp,self.L,v=v,w=0.) # upward force
         #
         z=zmin
         if hasattr(self,'piston'):
             v=self.piston.vol_min
         else:
             v=None
-        fmin=self._f(z,waterp,Lv,v=v,w=0.) # downward force
+        fmin=self._f(z,waterp,self.L,v=v,w=0.) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
-        wmax = np.sqrt( afmax * Lv/self.m)
+        wmax = np.sqrt( afmax * self.m*2*self.L / self.c1)
         print('Acceleration and velocity bounds (zmin=%.0fm,zmax=%.0fm):' %(zmin,zmax))
         print('fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s' %(fmax/self.m,fmin/self.m,wmax*100.) )
         print('For accelerations, equivalent speed reached in 1min:')
@@ -216,25 +232,25 @@ class autonomous_float():
         waterp: water profile object
                 Contains information about the water profile
         T: float
-            Length of the simulation in seconds
+            Length of the simulation in seconds [s]
         dt_step: float
-            Simulation time step
+            Simulation time step [s]
         z: float
-            Initial position, 0. at the surface and negative downward
+            Initial position, 0. at the surface and negative downward [m]
         w: float
-            Initial vertical velocity, negative for downward motions
+            Initial vertical velocity, negative for downward motions [m.s^-1]
         v: float
-            Initial volume adjustement (total volume is V+v)
+            Initial volume adjustement (total volume is V+v) [m^3]
         t0: float
-            Initial time
+            Initial time [t]
         Lv: float
-            Drag length scale
+            Drag length scale [m]
         usepiston: boolean, default is False
-            Turns piston usage
+            Turns piston usage [no dimension]
         z_target: function
-            Target trajectory as a function of time
+            Target trajectory as a function of time [m]
         w_target: function
-            Target velocity as a function of time
+            Target velocity as a function of time [m.^s-1]
         ctrl: dict
             Contains control parameters
         eta: function
@@ -245,7 +261,7 @@ class autonomous_float():
             Time interval between log storage
         log_nrg: boolean, default is True
             Turns on/off nrg computation and storage
-        p_float: float
+        p_float: float [Pa]
             Internal float pressure in Pa
         '''
         t=t0
@@ -263,6 +279,7 @@ class autonomous_float():
             else:
                 w=self.w
         self.w = w
+        self.dwdt = 0.
         #
         if usepiston:
             if v is not None:
@@ -280,9 +297,23 @@ class autonomous_float():
                     if key not in ['waterp','f']:
                         print(' ctrl: '+key+' = '+str(val))
                 #
-                if ctrl['mode'] is 'pid':
+                if ctrl['mode'] == 'pid':
                     ctrl['error'] = 0.
                     ctrl['integral'] = 0.
+                    
+                if ctrl['mode'] == 'feedback':
+                    ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
+                    ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
+                    ctrl['L'] = self.L
+                    ctrl['c1'] = self.c1
+                    ctrl['m'] = self.m
+                    ctrl['gammaV'] = self.gammaV
+                    ctrl['rho'] = self.rho_cte
+                    ctrl['a'] = self.a
+                    ctrl['waterp'] = waterp
+                    
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -316,7 +347,8 @@ class autonomous_float():
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    u = control(self.z, z_target, ctrl, t=t, w=self.w, f=ctrl['f'])
+                    u = control(self.z, z_target, ctrl, t=t, w=self.w, 
+                                dwdt=self.dwdt, f=ctrl['f'])
                     #
                     v0 = self.piston.vol
                     self.piston.update(dt_step, u)
@@ -335,18 +367,19 @@ class autonomous_float():
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
             self.w += dt_step*_f/self.m
+            self.dwdt = _f/self.m
             t+=dt_step
         print('... time stepping done')
 
 #
-def control(z, z_target, ctrl, t=None, w=None, f=None):
+def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
     ''' Implements the control of the float position
     '''
     z_t = z_target(t)
     dz_t = (z_target(t+.05)-z_target(t-.05))/.1
     d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
     #
-    if ctrl['mode'] is 'sliding':
+    if ctrl['mode'] == 'sliding':
         # add tests: if w is None, if f is None ...
         #x1=self.z
         x2 = w
@@ -361,12 +394,21 @@ def control(z, z_target, ctrl, t=None, w=None, f=None):
         d3y = ctrl['d3y_ctrl']*control_sliding(z, w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
         u = df1*x2 + df2*f2 + df3*f3 - d3y
         u = -u/df3
-    elif ctrl['mode'] is 'pid':
+        
+    elif ctrl['mode'] == 'pid':
         error = z_t - z
         ctrl['integral'] += error*ctrl['dt_ctrl']
         ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt_ctrl']
         ctrl['error'] = error
         u = ctrl['Kp']*ctrl['error'] + ctrl['Ki']*ctrl['integral'] + ctrl['Kd']*ctrl['derivative']
+
+    elif ctrl['mode'] == 'feedback':
+        ctrl['ldb1'] = 2/ctrl['tau'] # /s
+        ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
+        #f2 = f._f(z, ctrl['waterp'], ctrl['L'])/f.m
+        u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'], 
+                             ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], 
+                             ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
         sys.exit()
@@ -379,7 +421,60 @@ def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
+def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, 
+                     lbd1, lbd2, delta):
+    
+    ''' Control feedback of the float position
+    Parameters
+    ----------
 
+    z: float
+        Position of the float, 0. at the surface and negative downward [m]
+    dz: float
+        Vertical velocity of the float, negative for downward motions [m.s^-1]
+    d2z: float
+        Vertical acceleration of the float, negative for downward accelerations [m.s^-2]
+    z_target: float
+        Target depth [m]
+    nu: float
+        Travel velocity when the float is far from the target position [m.s^-1]
+    gammaV: float
+        Float mechanical compressibility x float volume [m^3/dbar]
+    L: float
+        Float length [m]
+    c1: float
+        Float drag parameter
+    m: float
+        Float mass [kg]
+    rho: float
+        Float constant density [kg.m^-3]
+    a: float
+        Float added mass [no dimension]
+    waterp: water profile object
+            Contains information about the water profile
+    ldb1: float
+        float control parameter 1 [s^-1]
+    ldb2: float
+        float control parameter 2 [s^-2]
+    delta: float
+        length scale that defines the zone of influence around the target depth [m]
+    '''
+    
+    A = g*rho/((a+1)*m)
+    B = c1/(2*L*(1+a))
+    x1 = -dz
+    dx1 = -d2z
+    x2 = -z
+    x2bar = -z_t
+    e = x2bar - x2
+    D = 1 + (e**2)/(delta**2)
+    y = x1 - nu*np.arctan(e/delta)
+    dy = dx1 + nu*x1/(delta*D)
+    
+    if dz < 0:
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*x1*dx1) + gammaV*x1
+    else: #dz >= 0 not differentiable at value 0 : critical value
+        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*x1*dx1) + gammaV*x1
 #
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
@@ -638,7 +733,7 @@ class piston():
 
         Parameters
         ----------
-        a: float [m]
+        r: float [m]
             piston radius
         phi: float [rad]
             angle of rotation
@@ -646,7 +741,7 @@ class piston():
             current piston displacement
         vol: float [m^3]
             current volume
-            vol = d x pi x a^2
+            vol = d x pi x r^2
         omega: float [rad/s]
             current rotation rate, omega=dphi/dt
         lead: float [m]
@@ -673,7 +768,7 @@ class piston():
 
         """
         # default parameters: ENSTA float
-        params = {'a': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
+        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
                   'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
                   'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.,
                   'efficiency':.1}
@@ -703,7 +798,7 @@ class piston():
 
     def __repr__(self):
         strout='Piston parameters and state: \n'
-        strout+='  2a    = %.2f mm        - piston diameter\n'%(2.*self.a*1.e3)
+        strout+='  r     = %.2f mm        - piston radius\n'%(self.r*1.e3)
         strout+='  phi   = %.2f rad       - present angle of rotation\n'%(self.phi)
         strout+='  d     = %.2f mm        - present piston displacement\n'%(self.d*1.e3)
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
@@ -768,11 +863,15 @@ class piston():
 
     def omega2dvdt(self,omega):
         # /np.pi*np.pi has been simplified
-        return omega*self.lead/2.*self.a**2
+        #to compute omega for the ENSTA float:
+        #the motor of the piston needs 48 notches to complete a full rotation
+        #it can reach until 30 rotations a seconde
+        #so omega = 2*pi*30/48 = 3.9 rad/s
+        return omega*self.lead/2.*self.r**2
 
     def dvdt2omega(self,dvdt):
         # /np.pi*np.pi has been simplified
-        return dvdt/(self.lead/2.*self.a**2)
+        return dvdt/(self.lead/2.*self.r**2)
 
     def phi2d(self,phi):
         return self.d_min+(phi-self.phi_min)/2./np.pi*self.lead
@@ -784,13 +883,13 @@ class piston():
         return self.phi_min+(d-self.d_min)*2.*np.pi/self.lead
 
     def d2vol(self,d):
-        return self.vol_min+(d-self.d_min)*np.pi*self.a**2
+        return self.vol_min+(d-self.d_min)*np.pi*self.r**2
 
     def d2vol_no_volmin(self,d):
-        return self.vol_max+(d-self.d_max)*np.pi*self.a**2
+        return self.vol_max+(d-self.d_max)*np.pi*self.r**2
 
     def vol2d(self,vol):
-        return self.d_min+(vol-self.vol_min)/(np.pi*self.a**2)
+        return self.d_min+(vol-self.vol_min)/(np.pi*self.r**2)
 
     def vol2phi(self,vol):
         return self.d2phi(self.vol2d(vol))
@@ -810,7 +909,7 @@ class waterp():
     ''' Data holder for a water column based on either:
      - in situ temperature, salinity, pressure profiles
      - the World Ocean Atlas (WOA) climatology, see:
-        https://www.nodc.noaa.gov/OC5/woa13/
+        https://www.nodc.noaa.gov/OC5/woa18/
 
     Should base this on pandas !!
 
