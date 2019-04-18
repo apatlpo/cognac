@@ -35,14 +35,14 @@ class autonomous_float():
             temp0: reference temperature used for thermal compressibility [degC]
             a : float added mass [no dimension]
             c0, c1 : float drag parameters [no dimension]
-            
+
             All parameters are optional, default values are :
             'r': 0.05
             'L': 0.4
             'gamma': 2.e-6
-            
+
             a completer
-            
+
         '''
         # default parameters
         params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15., 'a': 1., 'c0': 0., 'c1': 1.}
@@ -66,7 +66,7 @@ class autonomous_float():
         #auxiliary parameters
         self.rho_cte= self.m / self.V #kg.m^-3
         self.gammaV = self.gamma*self.V #m^2
-        
+
     def __repr__(self):
         strout='Float parameters: \n'
         strout+='  L     = %.2f m      - float length\n'%(self.L)
@@ -166,7 +166,7 @@ class autonomous_float():
         if self.c0 != 0:
             print(' !!! linear drag coefficient not implemented yet')
             return None
-        
+
         if w is None:
             w = self.w
         f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) #
@@ -220,6 +220,7 @@ class autonomous_float():
                   z=None, w=None, v=None, t0=0., Lv=None,
                   usepiston=False, z_target=None,
                   ctrl=None,
+                  kalman=None,
                   eta=lambda t: 0.,
                   log=['t','z','w','v','dwdt'], dt_store=60.,
                   log_nrg=True, p_float=1.e5,
@@ -300,7 +301,7 @@ class autonomous_float():
                 if ctrl['mode'] == 'pid':
                     ctrl['error'] = 0.
                     ctrl['integral'] = 0.
-                    
+                #
                 if ctrl['mode'] == 'feedback':
                     ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
                     ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
@@ -313,13 +314,18 @@ class autonomous_float():
                     ctrl['rho'] = self.rho_cte
                     ctrl['a'] = self.a
                     ctrl['waterp'] = waterp
-                    
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
         else:
             self.v=v
         v0 = self.v
+        #
+        if kalman:
+            kalman_default = {'dt': 1.,'param1': 60., 'param2': 60}
+            if type(kalman) is dict:
+                kalman_default.update(kalman)
+            self.kalman = Kalman.init(kalman_default)
         #
         if Lv is None:
             Lv = self.L
@@ -342,12 +348,18 @@ class autonomous_float():
             # get vertical force on float
             waterp.update_eta(eta, t) # update isopycnal displacement
             _f = self._f(self.z, waterp, self.Lv)
+            #
+            # state estimation starts here
+            if kalman and t_modulo_dt(t, kalman['dt'], dt_step)::
+                #kalman.update(y)
+                pass
+            #
             # control starts here
             if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    u = control(self.z, z_target, ctrl, t=t, w=self.w, 
+                    u = control(self.z, z_target, ctrl, t=t, w=self.w,
                                 dwdt=self.dwdt, f=ctrl['f'])
                     #
                     v0 = self.piston.vol
@@ -394,7 +406,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
         d3y = ctrl['d3y_ctrl']*control_sliding(z, w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
         u = df1*x2 + df2*f2 + df3*f3 - d3y
         u = -u/df3
-        
+
     elif ctrl['mode'] == 'pid':
         error = z_t - z
         ctrl['integral'] += error*ctrl['dt_ctrl']
@@ -406,8 +418,8 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
         ctrl['ldb1'] = 2/ctrl['tau'] # /s
         ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
         #f2 = f._f(z, ctrl['waterp'], ctrl['L'])/f.m
-        u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'], 
-                             ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'], 
+        u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
+                             ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'],
                              ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
@@ -421,9 +433,9 @@ def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     '''
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
-def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp, 
+def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
                      lbd1, lbd2, delta):
-    
+
     ''' Control feedback of the float position
     Parameters
     ----------
@@ -459,7 +471,7 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
     delta: float
         length scale that defines the zone of influence around the target depth [m]
     '''
-    
+
     A = g*rho/((a+1)*m)
     B = c1/(2*L*(1+a))
     x1 = -dz
@@ -470,7 +482,7 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
     D = 1 + (e**2)/(delta**2)
     y = x1 - nu*np.arctan(e/delta)
     dy = dx1 + nu*x1/(delta*D)
-    
+
     if dz < 0:
         return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*x1*dx1) + gammaV*x1
     else: #dz >= 0 not differentiable at value 0 : critical value
@@ -896,6 +908,23 @@ class piston():
 
     def _checkbounds(self):
         self.phi = np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
+
+#------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------
+
+class Kalman(object):
+    ''' Kalman filter for float state estimation
+    '''
+
+    def __init__(self, params):
+        self.X = np.array([1.,2.,3.,4.])
+        # covariance matrices ...
+        #self.Gamma = ...
+        #self.Gamma_alpha = ...
+        #self.Gamma_beta = ...
+
+    def update(self, y):
+        # update self.x and self.
 
 
 
