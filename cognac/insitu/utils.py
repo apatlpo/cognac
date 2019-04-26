@@ -25,44 +25,11 @@ from netCDF4 import Dataset
 #_ll_lim_default = [6.4, 6.6, 42.92, 43.2]
 _ll_lim_default = [6., 6.6, 42.7, 43.2]
 
-
 def dec2sec(dec):
     # return coordinates with seconds
     idec = np.trunc(dec)
     sec = np.abs(dec - idec) * 60.
     return [idec, sec]
-
-
-class objdict0(object):
-    ''' Dict like object that treats path and color as attributes
-    '''
-    def __init__(self, *args,**kwargs):
-        self._dict= dict(*args,**kwargs)
-        if 'path' in self._dict:
-            setattr(self, 'path', self._dict['path'])
-            del self._dict['path']
-        if 'color' in self._dict:
-            setattr(self, 'color', self._dict['color'])
-            del self._dict['color']
-
-    def __getitem__(self, key):
-        if key not in ['path', 'color']:
-            val = self._dict[key]
-        return val
-
-    def __setitem__(self, key, value):
-        if key not in ['path', 'color']:
-            self._dict[key] = value
-        else:
-            setattr(self, key, value)
-
-    def __iter__(self):
-        for key, value in self._dict.items():
-            if key not in ['path', 'color']:
-                yield value
-
-    def __str__(self):
-        return self._dict.__str__()
 
 class event(object):
 
@@ -180,12 +147,19 @@ class campaign(object):
         with open(file, 'r') as stream:
             cp = yaml.load(stream)
 
-        self.name = cp['name']
+        default_attr = {'name': 'unknown',
+                        'lon_lim': None, 'lat_lim': None,
+                        'path': './'}
+        for key, value in default_attr.items():
+            if key in cp:
+                setattr(self, key, cp[key])
+            else:
+                setattr(self, key, value)
 
-        if 'path' in cp:
-            self.path = cp['path']
+        if 'pathp' in cp:
+            self.pathp = cp['pathp']
         else:
-            self.path = './'
+            self.pathp = self.path+'datap/'
 
         self._units = {}
         for i, idep in cp['units'].items():
@@ -203,6 +177,11 @@ class campaign(object):
             return self._units[item]
         else:
             return None
+
+    def load_data(self):
+        ''' load processed data
+        '''
+        pass
 
 
 #
@@ -291,15 +270,19 @@ def lstr(l):
     return '%d deg %.5f' %(int(l), (l-int(l))*60.)
 
 
-def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None):
+def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
     crs = ccrs.PlateCarree()
     #
     if fig is None:
         fig = plt.figure(figsize=figsize)
     else:
         fig.clf()
-    if ll_lim is None:
+
+    if cp is not None:
+        ll_lim = cp.lon_lim+cp.lat_lim
+    elif ll_lim is None:
         ll_lim = _ll_lim_default
+
     ax = fig.add_subplot(111, projection=crs)
     ax.set_extent(ll_lim, crs=crs)
     gl = ax.gridlines(crs=crs, draw_labels=True, linewidth=2, color='k',
@@ -336,7 +319,7 @@ def plot_bathy(fac):
     ds = xr.open_dataset(bathy)
     cs = ax.contour(ds.lon, ds.lat, ds.elevation, [-2000., -1000., -500., -200., -100.],
                     linestyles='-', colors='black', linewidths=0.5, )
-    plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9, transform=crs)
+    plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
 
 
 #

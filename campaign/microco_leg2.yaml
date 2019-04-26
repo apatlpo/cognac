@@ -1,5 +1,11 @@
 name: Microco Leg 2
 path: /Users/aponte/Current_projects/cognac/campagnes_techno/2018_microco/leg2/data/
+lon_lim:
+  - 6.
+  - 6.4
+lat_lim:
+  - 42.8
+  - 43.1
 units:
   source:
     d1:

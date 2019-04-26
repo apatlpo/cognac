@@ -1,4 +1,10 @@
 
+
+#
+# !!!!!!! Old code, may need to be removed !!!!!!!
+#
+
+
 import os, sys, pickle, glob
 import csv
 import numpy as np
@@ -18,6 +24,8 @@ from .utils import gps_data
 
 # flag controlling the production or not of figures
 prtfig=True
+
+
 
 
 
