@@ -11,6 +11,7 @@ conda create -n cognac -c conda-forge \
 conda activate cognac
 pip install pynmea2
 pip install cmocean
+conda install ffmpeg
 ```
 
 Run a jupyter notebook with the following command:
