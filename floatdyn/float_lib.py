@@ -1,4 +1,4 @@
-
+from math import atan
 import sys
 import numpy as np
 from scipy.interpolate import interp1d
@@ -282,6 +282,26 @@ class autonomous_float():
         self.w = w
         self.dwdt = 0.
         #
+        if kalman:
+            kalman_default = {'dt': 1.,'m': self.m., 'a': self.a, 'rho': self.rho_cte, 'd_flange': 2*self.r,
+                              'd_piston': 2*self.piston.r, 'screw_thread': self.piston.lead, 
+                              'tick_per_turn': self.piston.tick_per_turn, 'delta_volume_max': self.piston.delta_volume_max,
+                              'piston_full_volume': self.piston.vol_max, 'tick_to_volume': self.piston.tick_to_volume,
+                              'velocity_volume_max': self.piston.velocity_volume_max, 'tick_offset': self.tick_offset,
+                              'chi' : self.piston.chi,
+                              'gamma': 	gamma = np.array([[(1e-6)**2,	0.0, 		0.0, 		0.0],
+					                                       [0.0,			(1e-7)**2, 	0.0, 		0.0],
+					                                       [0.0, 		0.0, 		(1e-5)**2, 	0.0	],
+					                                       [0.0, 		0., 		0.0, 		(1e-6)**2]]),
+                              'gamma_alpha': 	gamma_alpha = np.array([[(1e-4)**2, 0, 0, 0],
+					  		                                          [0, (1e-5)**2, 0, 0],
+					  		                                          [0, 0, (1e-7)**2, 0],
+					  		                                          [0, 0, 	0, 		(1e-7)**2]]),
+                              'gamma_beta': gamma_beta = np.array([(1e-5)**2])} #gamma_beta: mesure
+            if type(kalman) is dict:
+                kalman_default.update(kalman)
+            self.kalman = Kalman.init(kalman_default)
+        #
         if usepiston:
             if v is not None:
                 self.piston.update_vol(v)
@@ -314,18 +334,22 @@ class autonomous_float():
                     ctrl['rho'] = self.rho_cte
                     ctrl['a'] = self.a
                     ctrl['waterp'] = waterp
+
+
+                if ctrl['mode'] == 'kalman_feedback':
+                    ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
+                    ctrl['vertical_velocity'] = 0.0
+                    ctrl['kalman'] = self.kalman
+
+
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
         else:
             self.v=v
         v0 = self.v
-        #
-        if kalman:
-            kalman_default = {'dt': 1.,'param1': 60., 'param2': 60}
-            if type(kalman) is dict:
-                kalman_default.update(kalman)
-            self.kalman = Kalman.init(kalman_default)
         #
         if Lv is None:
             Lv = self.L
@@ -350,8 +374,8 @@ class autonomous_float():
             _f = self._f(self.z, waterp, self.Lv)
             #
             # state estimation starts here
-            if kalman and t_modulo_dt(t, kalman['dt'], dt_step)::
-                #kalman.update(y)
+            if kalman and t_modulo_dt(t, kalman['dt'], dt_step):
+                #kalman.update(kalman['dt'], z_target)
                 pass
             #
             # control starts here
@@ -421,6 +445,15 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
         u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
                              ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'],
                              ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
+
+
+
+    elif ctrl['mode'] == 'kalman_feedback':
+        ctrl['ldb1'] = 2/ctrl['tau'] # /s
+        ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
+        u = control_kalman_feedback(ctrl['kalman'], z_t, dt)
+
+
     else:
         print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
         sys.exit()
@@ -488,6 +521,31 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
     else: #dz >= 0 not differentiable at value 0 : critical value
         return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*x1*dx1) + gammaV*x1
 #
+
+
+
+def control_kalman_feedback(kalman, depth_target, dt):
+
+    ''' Control feedback of the float position with kalman filter
+    Parameters
+    ----------
+
+    z: float
+        Position of the float, 0. at the surface and negative downward [m]
+    '''
+
+
+    x_control = np.array([0.0, 0.0, 0.0]) # v,z,V
+    x_control[0] = kalman.x_hat[0]
+    x_control[1] = kalman.x_hat[1]
+    x_control[2] = (kalman.x[2]-kalman.volume_offset)+kalman.x_hat[2]
+    chi_kalman = kalman.x_hat[3]
+
+    return kalman.control(x_control, depth_target, dt, chi_kalman)
+
+
+
+
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder
 
@@ -759,6 +817,16 @@ class piston():
         lead: float [m]
             screw lead (i.e. displacement after one screw revolution)
             d = phi/2/pi x lead
+        tick_per_turn: [no dimension]
+            number of notches on the thumbwheel of the piston
+        tick_to_volume: [m^3]
+            variation of volume corresponding to each notch on the thumbwheel of the piston
+        velocity_volume_max: [m^3/s]
+            variation of volume max per second possible in the float thanks to the piston
+        tick_offset: [no dimension]
+            offset number of notches when the volume in the float is vol_min
+        chi: [m^3/m]
+            compressibility ratio compare to water
         phi_max: float [rad]
             maximum angle of rotation
         phi_min: float [rad]
@@ -767,6 +835,8 @@ class piston():
             screw displacement when piston is fully out
         d_min: float [m]
             screw displacement when piston is fully in
+        delta_volume_max: float [m^3/s]
+            maximal variation of volume possible per second
         vol_max: float [m^3]
             volume when piston is fully out
         vol_min: float [m^3]
@@ -780,8 +850,8 @@ class piston():
 
         """
         # default parameters: ENSTA float
-        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, \
-                  'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_min': 0., \
+        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
+                  'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'delta_volume_max': 1.718e-4/240.0, 'vol_max': 1.718e-4,'vol_min': 0., \
                   'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.,
                   'efficiency':.1}
         #
@@ -796,6 +866,7 @@ class piston():
             if 'd_max' in kwargs:
                 self.d_max=kwargs['d_max']
                 self.vol_min = self.d2vol_no_volmin(self.d_min)
+
             self.d_max = self.vol2d(self.vol_max)
             print('Piston max displacement set from max volume')
         elif 'd_max' in kwargs:
@@ -807,6 +878,9 @@ class piston():
         #
         self.phi_max = self.d2phi(self.d_max)
         self.update_dvdt()
+        self.tick_to_volume = (self.lead/self.tick_per_turn)*((self.r)**2)*np.pi
+        self.velocity_volume_max = 30*self.tick_to_volume #the motor can reach until 30 rotations a seconde
+        self.chi = 30.0*self.tick_to_volume
 
     def __repr__(self):
         strout='Piston parameters and state: \n'
@@ -815,10 +889,16 @@ class piston():
         strout+='  d     = %.2f mm        - present piston displacement\n'%(self.d*1.e3)
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
         strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
+        strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
+        strout+='  tick_to_volume  = %.2f m^3        - variation of volume corresponding to each notch on the thumbwheel of the piston\n'%(self.tick_to_volume)
+        strout+='  velocity_volume_max  = %.2f m^3/s        - variation of volume max per second possible in the float thanks to the piston\n'%(self.velocity_volume_max)
+        strout+='  tick_offset  = %.2f no dimension        - offset number of notches when the volume in the float is vol_min\n'%(self.tick_offset)
+        strout+='  chi  = %.2f m^3/m        - compressibility ratio compare to water\n'%(self.chi)
         strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
         strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
         strout+='  d_max = %.2f mm        - maximum piston displacement\n'%(self.d_max*1.e3)
         strout+='  d_min = %.2f mm        - minimum piston displacement\n'%(self.d_min*1.e3)
+        strout+='  delta_volume_max = %.2f m^3/s    - maximal variation of volume possible per second\n'%(self.delta_volume_max)
         strout+='  vol_min = %.2f cm^3    - min volume displaced\n'%(self.vol_min*1.e6)
         strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
         strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
@@ -917,15 +997,136 @@ class Kalman(object):
     '''
 
     def __init__(self, params):
-        self.X = np.array([1.,2.,3.,4.])
+        self.x = np.array([1.,2.,3.])
+        self.x_hat = np.array([0.0, 0.0, 0.0, 0.0])
+        self.u = 0
         # covariance matrices ...
-        #self.Gamma = ...
-        #self.Gamma_alpha = ...
-        #self.Gamma_beta = ...
+        self.gamma = np.array([[(1e-6)**2,	0.0, 		0.0, 		0.0],
+					  [0.0,			(1e-7)**2, 	0.0, 		0.0],
+					  [0.0, 		0.0, 		(1e-5)**2, 	0.0	],
+                         [0.0, 0., 0.0, (1e-6)**2]])
+        self.gamma_alpha = np.array([[(1e-4)**2, 0, 0, 0],
+						[0, (1e-5)**2, 0, 0],
+						[0, 0, (1e-7)**2, 0],
+                            [0, 0, 0, (1e-7)**2]])
+        self.gamma_beta = np.array([(1e-5)**2]) # measure
+        self.C = np.array([[0, 1, 0, 0.]])
 
-    def update(self, y):
+        """ a remplacer par des valeurs issues de params"""
+        
+        self.a = 1
+        self.m = 9.045
+        self.rho = 1025.0
+        self.d_flange = 0.24
+        self.d_piston = 0.05
+
+        self.Cf = np.pi*(self.d_flange/2.0)**2
+        
+        self.A_coeff = g*self.rho/((self.a+1)*self.m)
+        self.B_coeff = 0.5*self.rho*self.Cf/((self.a+1)*self.m)
+
+        self.A = np.array([	[1., 0., -self.A_coeff, 0.],
+    					[1, 1., 0, 0],
+    					[0, 0, 1., 0],
+    					[0, 0, 0, 1.]])
+        
+        # Motor parameters
+        self.screw_thread = 1.75e-3
+        self.tick_per_turn = 48
+        self.piston_full_volume = 1.718e-4 # m3
+        self.delta_volume_max = 1.718e-4/240.0 # m3/s 
+
+        self.tick_to_volume = (self.screw_thread/self.tick_per_turn)*((self.d_piston/2.0)**2)*np.pi
+
+        self.velocity_volume_max = 30.*self.tick_to_volume
+
+        self.tick_offset = 250.0
+        self.chi = 30.0*self.tick_to_volume # Compressibility ratio compare to water (m3/m)
+
+
+        self.volume_offset = self.tick_offset*self.tick_to_volume
+
+        # Regulation
+        self.beta = 2./np.pi*0.03 # Set the limit speed : 5cm/s
+        self.root = -1.0	 # Set the root of feed-back regulation
+
+        self.delta = 1
+        self.l1 = -2.*self.root
+        self.l2 = self.root**2
+
+
+        self.vertical_velocity = 0.0
+
+    def f(self,x, u, gamma_alpha):
+        y = np.array(x)
+        y[0] = -self.A_coeff*(u+x[2]-x[3]*x[1])-self.B_coeff*x[0]*abs(x[0])
+        y[1] = x[0]
+        y[2] = 0.0
+        y[3] = 0.0
+        return y
+
+    def kalman_predict(self,xup,Gup,u,gamma_alpha,A, dt):
+        gamma1 = A @ Gup @ A.T + gamma_alpha
+        x1 = xup + self.f(xup, u, gamma_alpha)*dt
+        return(x1,gamma1)
+        
+    def kalman_correc(x0,gamma0,y,gamma_beta,C):
+        S = C @ gamma0 @ C.T + gamma_beta
+        K = gamma0 @ C.T @ np.linalg.inv(S)
+        ytilde = y - C @ x0
+        Gup = (np.eye(len(x0))-K @ C) @ gamma0
+        xup = x0 + K@ytilde
+        return(xup,Gup) 
+    
+    def kalman(self,x0,gamma0,u,y,gamma_alpha,gamma_beta,A,C, dt):
+        xup,Gup = self.kalman_correc(x0,gamma0,y,gamma_beta,C)
+        x1,gamma1=self.kalman_predict(xup,Gup,u,gamma_alpha,A, dt)
+        return(x1,gamma1)  
+
+    def euler(self,x, u, dt):
+        y=np.array(x)
+        y[0] += dt*(-self.A_coeff*(x[2]-self.chi*x[1])-self.B_coeff*x[0]*abs(x[0])+self.B_coeff*((self.vertical_velocity-x[0])*(abs(self.vertical_velocity-x[0]))))
+        y[1] += dt*(x[0])
+        y[2] += dt*u
+        return y
+        
+    def control(self,x, depth_target, dt, chi_kalman):
+        e = depth_target-x[1]
+        y = x[0]-self.beta*atan(e)
+        dx1 = -self.A_coeff*(x[2]-chi_kalman*x[1])-self.B_coeff*abs(x[0])*x[0]
+        D = 1.+e**2
+        dy = dx1 + self.beta*x[0]/D
+    
+        u = (self.l1*dy+self.l2*y+self.beta/self.delta*(dx1*D+2.*e*x[0]**2)/D**2-2.*self.B_coeff*abs(x[0])*dx1)/self.A_coeff+chi_kalman*x[0]
+        u_physical = max(min(u, self.delta_volume_max*dt), -self.delta_volume_max*dt) ##
+        return u_physical
+    
+    
+
+    def update(self,dt,depth_target):
         # update self.x and self.
+        cmd = np.array(self.x[2]-self.volume_offset) + self.tick_to_volume * np.random.normal(0.0, (1.)**2)
+        y = self.x[1] + np.random.normal(0.0, (1e-3)**2)
+        self.A[0][0] = -2.*self.B_coeff*x_hat[0]+1. # x_hat[0]
+        self.A[0][1] = self.x_hat[3]*self.A_coeff
+        self.A[0][3] = self.x_hat[1]*self.A_coeff
 
+        (self.x_hat,self.gamma) = self.kalman(self.x_hat,self.gamma,cmd,y,self.gamma_alpha,self.gamma_beta,self.A,self.C, dt)
+
+
+        x_control = np.array([0.0, 0.0, 0.0]) # v,z,V
+        x_control[0] = self.x_hat[0]
+        x_control[1] = self.x_hat[1]
+        x_control[2] = (self.x[2]-self.volume_offset)+self.x_hat[2]
+        chi_kalman = self.x_hat[3]
+    
+    
+        self.u = control(x_control, depth_target, dt, chi_kalman)
+        self.u = max(min(self.u, self.velocity_volume_max), -self.velocity_volume_max)
+    
+        self.x = self.euler(self.x, self.u, dt)
+
+        return None
 
 
 
