@@ -3,11 +3,19 @@
 
 import os
 #import csv
+import numpy as np
 import pandas as pd
 
 arec_attrs = ['map', 'path']
 
+from acoustics import Signal
 #from ..acoustic.thinkdsp import *
+
+def join(s1, s2):
+    ''' join two signals
+    '''
+    assert s1.fs == s2.fs
+    return Signal(np.concatenate([s1,s2]), fs=s1.fs)
 
 class acoustic_recorder(object):
 
@@ -16,6 +24,21 @@ class acoustic_recorder(object):
         self.recorder = recorder
         if recorder == 'logger_head':
             self._load_logger_head(path)
+
+    def __getitem__(self,t):
+        df = self._map(t).reset_index()
+        s = None
+        for f in df['file_path']:
+            if s is None:
+                s = Signal.from_wav(f)
+            else:
+                s = join(s, Signal.from_wav(f))
+        # further triming
+        i0 = int( (t.start - df['time'].iloc[0]).seconds*s.fs )
+        i1 = int( (df['time'].iloc[-1] - t.stop).seconds*s.fs )
+        s = Signal(s[i0:i1], s.fs)
+        t = df['time'].iloc[0] + pd.Timedelta( i0/s.fs ,unit='seconds')
+        return s, t
 
     def _load_logger_head(self, path):
         # load CSV file
@@ -41,15 +64,15 @@ class acoustic_recorder(object):
         self.df = df.sort_index()
         #
 
-    def map(self, t, dt=None):
+    def _map(self, t, dt=None):
         _df = self.df.reset_index()
         tp = _df.shift(1)
-        if type(t) is list:
-            if t[0] < _df['time'].iloc[1]:
-                out = _df.loc[ (_df['time']<=t[1]) ]
+        if type(t) is slice:
+            if t.start < _df['time'].iloc[1]:
+                out = _df.loc[ (_df['time']<=t.stop) ]
             else:
                 tm = _df.shift(-1)
-                out = _df.loc[ (tm['time']>=t[0]) & (_df['time']<=t[1]) ]
+                out = _df.loc[ (tm['time']>=t.start) & (_df['time']<=t.stop) ]
             return out.set_index('time')
         elif dt is not None:
             return self.map([t-pd.Timedelta(dt)/2,t+pd.Timedelta(dt)/2])
