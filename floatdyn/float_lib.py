@@ -375,8 +375,8 @@ class autonomous_float():
             #
             # state estimation starts here
             if self.kalman and t_modulo_dt(t, kalman['dt'], dt_step):
-                self.kalman.update_kalman(kalman['dt'], z_target, u, self.z, self.w, self.v, ctrl)
-                pass
+                self.kalman.update_kalman(kalman['dt'], z_target(t), u, self.z, self.w, self.v, ctrl)
+
             #
             # control starts here
             if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
@@ -1093,7 +1093,7 @@ class Kalman(object):
         self.u = self.control(x_control, depth_target, dt, chi_kalman, ctrl)
         self.u = max(min(self.u, self.velocity_volume_max), -self.velocity_volume_max)
     
-        self.x = np.array([z,w,v])#self.x = self.euler(self.x, self.u, dt)
+        self.x = np.array([z,w,v]) #self.x = self.euler(self.x, self.u, self.dt)
 
         return None
 
