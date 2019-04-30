@@ -1,9 +1,12 @@
 
+from glob import glob
+import re
 import numpy as np
 import pandas as pd
 
 # cognac data and tools
 from .gps import *
+from .arecorder import *
 
 source_attrs = ['gps', 'emission']
 
@@ -256,3 +259,10 @@ def read_log_file(file, verbose):
         edata.d = edata.d.loc[edata['time']!=t_nan]
 
     return gp, edata
+
+def load_emission_sequence(path):
+    files = sorted(glob(path+'*.wav'),
+                   key=lambda x: int(re.match('\D*(\d+)', x.split('/')[-1]).group(1)))
+    sequence = [Signal.from_wav(f) for f in files]
+    fs = set([s.fs for s in sequence])
+    return sequence, fs

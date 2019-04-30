@@ -11,11 +11,6 @@ arec_attrs = ['map', 'path']
 from acoustics import Signal
 #from ..acoustic.thinkdsp import *
 
-def join(s1, s2):
-    ''' join two signals
-    '''
-    assert s1.fs == s2.fs
-    return Signal(np.concatenate([s1,s2]), fs=s1.fs)
 
 class acoustic_recorder(object):
 
@@ -76,3 +71,12 @@ class acoustic_recorder(object):
             return out.set_index('time')
         elif dt is not None:
             return self.map([t-pd.Timedelta(dt)/2,t+pd.Timedelta(dt)/2])
+
+
+# ------------------------------ Utils  ----------------------------------------
+
+def join(s1, s2):
+    ''' join two signals
+    '''
+    assert s1.fs == s2.fs
+    return Signal(np.concatenate([s1,s2]), fs=s1.fs)
