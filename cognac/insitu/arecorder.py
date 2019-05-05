@@ -6,6 +6,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from IPython.display import Audio
+
 arec_attrs = ['map', 'path']
 
 from acoustics import Signal
@@ -30,8 +32,10 @@ class acoustic_recorder(object):
                 s = join(s, Signal.from_wav(f))
         # further triming
         i0 = int( (t.start - df['time'].iloc[0]).seconds*s.fs )
-        i1 = int( (df['time'].iloc[-1] - t.stop).seconds*s.fs )
-        s = Signal(s[i0:i1], s.fs)
+        i1 = i0 + (t.stop-t.start).seconds*s.fs
+        #print(i0,i1,i1-i0,s.shape, s[i0:i1].shape, s.fs)
+        s = s[i0:i1]
+        #s = Signal(s[i0:i1], s.fs)
         t = df['time'].iloc[0] + pd.Timedelta( i0/s.fs ,unit='seconds')
         return s, t
 
@@ -80,3 +84,6 @@ def join(s1, s2):
     '''
     assert s1.fs == s2.fs
     return Signal(np.concatenate([s1,s2]), fs=s1.fs)
+
+def play(s):
+    return Audio(data=s, rate=s.fs)
