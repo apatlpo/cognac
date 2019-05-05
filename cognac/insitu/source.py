@@ -261,7 +261,7 @@ def read_log_file(file, verbose):
     return gp, edata
 
 def load_emission_sequence(path):
-    files = sorted(glob(path+'*.wav'),
+    files = sorted(glob(path+'son*.wav'),
                    key=lambda x: int(re.match('\D*(\d+)', x.split('/')[-1]).group(1)))
     sequence = [Signal.from_wav(f) for f in files]
     fs = set([s.fs for s in sequence])
