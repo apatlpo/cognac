@@ -217,6 +217,59 @@ class autonomous_float():
 
         return fmax, fmin, afmax, wmax
 
+
+
+    def init_kalman(self, kalman, w, z, v, usepiston, t0):
+
+
+        if bool(kalman):
+            kalman_default = {'dt': 1.,'m': self.m, 'a': self.a, 'rho': self.rho_cte, 'd_flange': 2*self.r,
+                              'd_piston': 2*self.piston.r, 'screw_thread': self.piston.lead, 'c1': self.c1, 'L' : self.L,
+                              'tick_per_turn': self.piston.tick_per_turn, 'delta_volume_max': self.piston.delta_volume_max,
+                              'piston_full_volume': self.piston.vol_max, 'tick_to_volume': self.piston.tick_to_volume,
+                              'velocity_volume_max': self.piston.velocity_volume_max, 'tick_offset': self.piston.tick_offset,
+                              'chi' : self.piston.chi,
+                              #gamma: diag(v(10cm/s), z(1cm/s),v(tick_to_volume), Ve(tick_to_volume))**2
+                              #'gamma': np.diag([(1e-1)**2, (1e-2)**2, (self.piston.tick_to_volume)**2, (self.piston.tick_to_volume)**2]), #tick_to_volume = 7.158577010132995e-08
+                              'gamma': np.diag([(1e-10)**2, (1e-10)**2, (1e-10)**2, (1e-10)**2]), #testing perfect case
+                              
+#                              'gamma': np.array([[(1e-6)**2,	0.0, 		0.0, 		0.0],
+#					         [0.0,			(1e-7)**2, 	0.0, 		0.0],
+#					         [0.0, 		0.0, 		(1e-5)**2, 	0.0	],
+#					         [0.0, 		0., 		0.0, 		(1e-6)**2]]),
+                              
+                              #gamma_beta: diag(z(1cm/s),v(tick_to_volume))**2
+                              
+                              'gamma_beta': np.diag([(1e-10)**2, (1e-10)**2])} #testing perfect case
+                              #'gamma_beta': np.diag([(1e-2)**2, (self.piston.tick_to_volume)**2])} #gamma_beta: mesure
+            A_coeff = g*kalman_default['rho']/((kalman_default['a']+1)*kalman_default['m'])
+            #gamme_alpha: diag(v(10cm/s)/dt, z(1cm/s)/dt,v(tick_to_volume)/dt, A*Ve(tick_to_volume))**2
+            #kalman_default['gamma_alpha'] = np.diag([(1e-1/kalman_default['dt'])**2, (1e-2/kalman_default['dt'])**2, (1e-7/kalman_default['dt'])**2, (A_coeff*self.piston.tick_to_volume)**2])#np.array([(1e-4)**2, (1e-5)**2, (1e-7)**2, (1e-7)**2]), [0] et [2] ?
+            kalman_default['gamma_alpha'] = np.diag([(1e-10)**2, (1e-10)**2, (1e-10)**2, (1e-10)**2]) #testing perfect case
+#            kalman_default['gamma_alpha'] = np.array([[(1e-4)**2, 0, 0, 0],
+#					  		[0, (1e-5)**2, 0, 0],
+#					  		[0, 0, (1e-7)**2, 0],
+#					  		[0, 0, 	0, 		(1e-7)**2]])
+            
+            if type(kalman) is dict:
+                kalman_default.update(kalman)
+                
+            #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
+            x0 = [-w, -z, v, kalman_default['tick_offset']*kalman_default['tick_to_volume']]
+            if usepiston:
+                print('v', v)
+                if v is not None:
+                    x0 = [-w, -z, v, kalman_default['tick_offset']*kalman_default['tick_to_volume']]
+                    #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
+                else:
+                    x0 = [-w, -z, self.piston.vol, 0]
+                    #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
+            self.kalman = Kalman(x0, **kalman_default)
+            self.x_kalman = [self.kalman.x_hat]
+            self.gamma_kalman =[np.diag(self.kalman.gamma)]
+            self.t_kalman = [t0]
+
+
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
                   usepiston=False, z_target=None,
@@ -282,51 +335,10 @@ class autonomous_float():
                 w=self.w
         self.w = w
         self.dwdt = 0.
-        #
-        if bool(kalman):
-            kalman_default = {'dt': 1.,'m': self.m, 'a': self.a, 'rho': self.rho_cte, 'd_flange': 2*self.r,
-                              'd_piston': 2*self.piston.r, 'screw_thread': self.piston.lead, 'c1': self.c1, 'L' : self.L,
-                              'tick_per_turn': self.piston.tick_per_turn, 'delta_volume_max': self.piston.delta_volume_max,
-                              'piston_full_volume': self.piston.vol_max, 'tick_to_volume': self.piston.tick_to_volume,
-                              'velocity_volume_max': self.piston.velocity_volume_max, 'tick_offset': self.piston.tick_offset,
-                              'chi' : self.piston.chi,
-                              #gamma: diag(v(10cm/s), z(1cm/s),v(tick_to_volume), Ve(tick_to_volume))**2
-                              'gamma': np.diag([(1e-1)**2, (1e-2)**2, (self.piston.tick_to_volume)**2, (self.piston.tick_to_volume)**2]), #tick_to_volume = 7.158577010132995e-08
-                              
-                              
-#                              'gamma': np.array([[(1e-6)**2,	0.0, 		0.0, 		0.0],
-#					         [0.0,			(1e-7)**2, 	0.0, 		0.0],
-#					         [0.0, 		0.0, 		(1e-5)**2, 	0.0	],
-#					         [0.0, 		0., 		0.0, 		(1e-6)**2]]),
-                              
-                              #gamma_beta: diag(z(1cm/s),v(tick_to_volume))**2
-                              'gamma_beta': np.diag([(1e-2)**2, (self.piston.tick_to_volume)**2])} #gamma_beta: mesure
-            A_coeff = g*kalman_default['rho']/((kalman_default['a']+1)*kalman_default['m'])
-            #gamme_alpha: diag(v(10cm/s)/dt, z(1cm/s)/dt,v(tick_to_volume)/dt, A*Ve(tick_to_volume))**2
-            kalman_default['gamma_alpha'] = np.diag([(1e-1/kalman_default['dt'])**2, (1e-2/kalman_default['dt'])**2, (1e-7/kalman_default['dt'])**2, (A_coeff*self.piston.tick_to_volume)**2])#np.array([(1e-4)**2, (1e-5)**2, (1e-7)**2, (1e-7)**2]), [0] et [2] ?
-            
-#            kalman_default['gamma_alpha'] = np.array([[(1e-4)**2, 0, 0, 0],
-#					  		[0, (1e-5)**2, 0, 0],
-#					  		[0, 0, (1e-7)**2, 0],
-#					  		[0, 0, 	0, 		(1e-7)**2]])
-            
-            if type(kalman) is dict:
-                kalman_default.update(kalman)
-                
-            #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
-            x0 = [-w, -z, v, kalman_default['tick_offset']*kalman_default['tick_to_volume']]
-            if usepiston:
-                print('v', v)
-                if v is not None:
-                    x0 = [-w, -z, v, kalman_default['tick_offset']*kalman_default['tick_to_volume']]
-                    #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
-                else:
-                    x0 = [-w, -z, self.piston.vol, 0]
-                    #x0 = [0, 10.0, 0.00011446191940347092, 1e-6]
-            self.kalman = Kalman(x0, **kalman_default)
-            self.x_kalman = [self.kalman.x_hat]
-            self.gamma_kalman =[np.diag(self.kalman.gamma)]
-            self.t_kalman = [t0]
+        
+        #kalman initialisation
+
+        self.init_kalman(kalman, w, z, v, usepiston, t0)
             
         if usepiston:
             if v is not None:
@@ -415,7 +427,7 @@ class autonomous_float():
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
-                    print('[-w, -z, v, 1e-6]',[-w, -self.z, self.v, 1e-6])
+                    print('[-w, -z, v, 1e-6]',[-self.w, -self.z, self.v, 1e-6])
                     u = control(self.z, z_target, ctrl, t=t, w=self.w,
                                 dwdt=self.dwdt) #, f=ctrl['f'])
                     #
@@ -1071,9 +1083,11 @@ class Kalman(object):
         self.volume_offset = self.tick_offset*self.tick_to_volume
         self.vertical_velocity = 0.0
         
-    def update_kalman(self, u, z, v):
-        # update state
         
+    def gen_obs(self, z, v, scale = 1.0):
+
+
+
         # build observations 
         #y_v = np.array(self.x[2] -self.volume_offset) + \
         #            self.tick_to_volume * np.random.normal(0.0, (1.)**2)
@@ -1083,10 +1097,24 @@ class Kalman(object):
         
         #y_v = np.array(v -self.volume_offset) + \
         #            self.tick_to_volume * np.random.normal(0.,1.)
+        
+#        y_v = np.array(v -self.volume_offset) + \
+#                    self.tick_to_volume * np.random.normal(0.,np.sqrt(self.tick_to_volume))
+                    
         y_v = np.array(v -self.volume_offset) + \
-                    self.tick_to_volume * np.random.normal(0.,np.sqrt(self.tick_to_volume))
+                    self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-10)) #testing perfect case            
+                    
         #y_depth = -self.x_hat[1] + np.random.normal(0.0, (1e-3)**2)
-        y_depth = self.x_hat[1] + np.random.normal(0.0, np.sqrt(self.gamma_beta[0,0]))
+    #    y_depth = -self.x_hat[1] + np.random.normal(0.0, np.sqrt(self.gamma_beta[0,0])) 
+        
+        
+        y_depth = -z + np.random.normal(0.0, np.sqrt(1e-10))#testing perfect case
+        
+        return [y_depth, y_v]
+        
+    def update_kalman(self, u, z, v):
+        # update state
+        
         
         #
         #self.A[0,0] = -2.*self.B_coeff*self.x_hat[0]+1. # x_hat[0]
@@ -1095,8 +1123,9 @@ class Kalman(object):
         self.A[0,1] = self.A_coeff*self.chi
         #self.A[0,3] = self.x_hat[1]*self.A_coeff
         self.u = u
+        y = self.gen_obs(z, v)
         print("x0 initial", self.x_hat)
-        (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, u, [y_depth, y_v],
+        (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, u, y,
                                               self.A)
         print("x0 iteration", self.x_hat)
         print('x_hat', self.x_hat)
