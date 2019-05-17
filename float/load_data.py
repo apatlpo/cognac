@@ -508,5 +508,7 @@ def load_bag(filename):
 	# 	file = open(filename+".gpx","w") 
 	# 	file.write(gpx.to_xml()) 
 	# 	file.close() 
+    
+	return startTime
 
 	

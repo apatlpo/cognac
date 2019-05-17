@@ -5,14 +5,12 @@
 import pandas as pd
 import pickle
 
-# containment and delegation
-
-rbr_attrs = ['d', 'file', 'dt']
+rbr_attrs = ['d', 'id', 'file', 'dt']
 
 class rbr(object):
     """ Contains DST inclino data
     """
-    def __init__(self, file=None, **kwargs):
+    def __init__(self, file, id, **kwargs):
         if file is not None:
             self.file = file
             if '.txt' in file:
@@ -24,9 +22,10 @@ class rbr(object):
                 self._read_pickle(file)
         else:
             print('You need to provide a file name')
+        self.id = id
 
     def __str__(self):
-        return self.d.__str__()
+        return 'rbr '+str(self.id)+self.d.__str__()
 
     def __getitem__(self, item):
         if item is 'time':

@@ -12,6 +12,9 @@ conda activate cognac
 pip install pynmea2
 pip install cmocean
 conda install ffmpeg
+git clone https://github.com/python-acoustics/python-acoustics.git
+cd python-acoustics
+pip install -e .
 ```
 
 Run a jupyter notebook with the following command:

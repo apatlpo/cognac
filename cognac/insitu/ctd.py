@@ -1,6 +1,6 @@
 # !!! This should be a more general routine for ctd type data
 #
-# ------------------------- RBR data -----------------------------------
+# ------------------------- ctd data -----------------------------------
 #
 
 import pandas as pd
@@ -83,10 +83,8 @@ class ctd(object):
             self.d.set_index('time', inplace=True)
 
     #
-    def to_pickle(self, file=None):
+    def to_pickle(self, file):
         dictout = {key: getattr(self,key) for key in ctd_attrs}
-        if file is None:
-            file = self._file_striped+'.p'
         pickle.dump( dictout, open( file, 'wb' ) )
         print('Data store to '+file)
 
