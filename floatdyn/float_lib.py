@@ -246,7 +246,7 @@ class autonomous_float():
             #gamme_alpha: diag(v(10cm/s)/dt, z(1cm/s)/dt,v(tick_to_volume)/dt, A*Ve(tick_to_volume))**2
             kalman_default['gamma_alpha'] = np.diag([(1e-2/kalman_default['dt'])**2, (1e-3/kalman_default['dt'])**2,
                     (self.piston.tick_to_volume/kalman_default['dt'])**2,
-                    (1e-2*10.*self.piston.tick_to_volume/kalman_default['dt'])**2])
+                    (10.*self.piston.tick_to_volume/kalman_default['dt'])**2])
             #np.array([(1e-4)**2, (1e-5)**2, (1e-7)**2, (1e-7)**2]), [0] et [2] ?
             #kalman_default['gamma_alpha'] = np.diag([(1e-10)**2, (1e-10)**2, (1e-10)**2, (1e-10)**2]) #testing perfect case
 #            kalman_default['gamma_alpha'] = np.array([[(1e-4)**2, 0, 0, 0],
@@ -360,7 +360,7 @@ class autonomous_float():
             if v is not None:
                 self.piston.update_vol(v)
             self.v=self.piston.vol
-            u = 0.
+            u = 0
             if ctrl:
                 ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding',
                                 'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step} #,
@@ -1121,7 +1121,7 @@ class Kalman(object):
 #                    self.tick_to_volume * np.random.normal(0.,np.sqrt(self.tick_to_volume))
 
         #y_v = np.array(v -self.volume_offset) + \
-        y_v = np.array(v) + \
+        y_v = v + \
                     self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-10)) #testing perfect case
 
         #y_depth = -self.x_hat[1] + np.random.normal(0.0, (1e-3)**2)
