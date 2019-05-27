@@ -230,7 +230,7 @@ class autonomous_float():
                               'velocity_volume_max': self.piston.velocity_volume_max, 'tick_offset': self.piston.tick_offset,
                               'gammaV' : self.gammaV,
                               #gamma: diag(v(10cm/s), z(1cm/s),v(tick_to_volume), Ve(tick_to_volume))**2
-                              'gamma': np.diag([(1e-2)**2, (1e-3)**2, (self.piston.tick_to_volume)**2, (10.*self.piston.tick_to_volume)**2]), #tick_to_volume = 7.158577010132995e-08
+                              'gamma': np.diag([(1e-1)**2, (1e-2)**2, (self.piston.tick_to_volume)**2, (10.*self.piston.tick_to_volume)**2]), #tick_to_volume = 7.158577010132995e-08
                               #'gamma': np.diag([(1e-10)**2, (1e-10)**2, (1e-10)**2, (1e-10)**2]), #testing perfect case
 
 #                              'gamma': np.array([[(1e-6)**2,	0.0, 		0.0, 		0.0],
@@ -239,12 +239,12 @@ class autonomous_float():
 #					         [0.0, 		0., 		0.0, 		(1e-6)**2]]),
 
                               #gamma_beta: diag(z(1cm/s),v(tick_to_volume))**2
-                              'gamma_beta': np.diag([(1e-3/10)**2, (self.piston.tick_to_volume)**2]), #gamma_beta: mesure
+                              'gamma_beta': np.diag([(1e-2)**2, (self.piston.tick_to_volume)**2]), #gamma_beta: mesure
                               #'gamma_beta': np.diag([(1e-10)**2, (1e-10)**2]),
                               'verbose':1} #testing perfect case
             A_coeff = g*kalman_default['rho']/((kalman_default['a']+1)*kalman_default['m'])
             #gamme_alpha: diag(v(10cm/s)/dt, z(1cm/s)/dt,v(tick_to_volume)/dt, A*Ve(tick_to_volume))**2
-            kalman_default['gamma_alpha'] = np.diag([(1e-2/kalman_default['dt'])**2, (1e-3/kalman_default['dt'])**2,
+            kalman_default['gamma_alpha'] = np.diag([(1e-1/kalman_default['dt'])**2, (1e-2/kalman_default['dt'])**2,
                     (self.piston.tick_to_volume/kalman_default['dt'])**2,
                     (10.*self.piston.tick_to_volume/kalman_default['dt'])**2])
             #np.array([(1e-4)**2, (1e-5)**2, (1e-7)**2, (1e-7)**2]), [0] et [2] ?
@@ -1129,13 +1129,13 @@ class Kalman(object):
 
         #y_v = np.array(v -self.volume_offset) + \
         y_v = v + \
-                    self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-3)) #testing perfect case
+                    self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-1)) #testing perfect case
 
         #y_depth = -self.x_hat[1] + np.random.normal(0.0, (1e-3)**2)
     #    y_depth = -self.x_hat[1] + np.random.normal(0.0, np.sqrt(self.gamma_beta[0,0]))
 
 
-        y_depth = -z + np.random.normal(0.0, np.sqrt(1e-3))#testing perfect case
+        y_depth = -z + np.random.normal(0.0, np.sqrt(1e-2))#testing perfect case
 
         
         return [y_depth, y_v]
