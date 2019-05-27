@@ -239,7 +239,7 @@ class autonomous_float():
 #					         [0.0, 		0., 		0.0, 		(1e-6)**2]]),
 
                               #gamma_beta: diag(z(1cm/s),v(tick_to_volume))**2
-                              'gamma_beta': np.diag([(1e-3)**2, (self.piston.tick_to_volume)**2]), #gamma_beta: mesure
+                              'gamma_beta': np.diag([(1e-3/10)**2, (self.piston.tick_to_volume)**2]), #gamma_beta: mesure
                               #'gamma_beta': np.diag([(1e-10)**2, (1e-10)**2]),
                               'verbose':1} #testing perfect case
             A_coeff = g*kalman_default['rho']/((kalman_default['a']+1)*kalman_default['m'])
@@ -280,7 +280,9 @@ class autonomous_float():
                   ctrl=None,
                   kalman={'dt':1},
                   eta=lambda t: 0.,
-                  log=['t','z','w','v','dwdt', 'Ve', 'gammaV'], dt_store=60.,
+                  log=['t','z','w','v','dwdt', 'Ve', 'gammaV', 'u', 'z_kalman',
+                       'w_kalman', 'v_kalman', 'Ve_kalman', 'gamma_diag1',
+                       'gamma_diag2','gamma_diag3','gamma_diag4'], dt_store=60.,
                   log_nrg=True, p_float=1.e5,
                   verbose=0,
                   **kwargs):
@@ -460,11 +462,16 @@ class autonomous_float():
             #self.Ve = _f/g/self.rho - gamma_e * self.z - self.v
 
             self.Ve = _f/(g*self.rho_cte) - self.gammaV * self.z - self.v
-            
+     
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
-                    self.log.store(t=t, z=self.z, w=self.w, v=self.v, dwdt=_f/self.m, Ve=self.Ve, gammaV=self.gammaV)
+                    self.log.store(t=t, z=self.z, w=self.w, v=self.v, dwdt=_f/self.m, Ve=self.Ve,
+                                   gammaV=self.gammaV, u=u, z_kalman=self.kalman.x_hat[1],
+                                   w_kalman=self.kalman.x_hat[0],v_kalman=self.kalman.x_hat[2],
+                                   Ve_kalman=self.kalman.x_hat[3], gamma_diag1=self.kalman.gamma[0,0],
+                                   gamma_diag2=self.kalman.gamma[1,1],gamma_diag3=self.kalman.gamma[2,2],
+                                   gamma_diag4=self.kalman.gamma[3,3])
                     if log_nrg:
                         self.log.store(nrg=self.nrg)
 
@@ -972,7 +979,7 @@ class piston():
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
         strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
         strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
-        strout+='  tick_to_volume  = %.2f m^3        - variation of volume corresponding to each notch on the thumbwheel of the piston\n'%(self.tick_to_volume)
+        strout+='  tick_to_volume  = %.2e m^3        - variation of volume corresponding to each notch on the thumbwheel of the piston\n'%(self.tick_to_volume)
         strout+='  velocity_volume_max  = %.2f m^3/s        - variation of volume max per second possible in the float thanks to the piston\n'%(self.velocity_volume_max)
         strout+='  tick_offset  = %.2f no dimension        - offset number of notches when the volume in the float is vol_min\n'%(self.tick_offset)
         strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
@@ -1122,13 +1129,13 @@ class Kalman(object):
 
         #y_v = np.array(v -self.volume_offset) + \
         y_v = v + \
-                    self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-10)) #testing perfect case
+                    self.tick_to_volume * np.random.normal(0.,np.sqrt(1e-3)) #testing perfect case
 
         #y_depth = -self.x_hat[1] + np.random.normal(0.0, (1e-3)**2)
     #    y_depth = -self.x_hat[1] + np.random.normal(0.0, np.sqrt(self.gamma_beta[0,0]))
 
 
-        y_depth = -z + np.random.normal(0.0, np.sqrt(1e-10))#testing perfect case
+        y_depth = -z + np.random.normal(0.0, np.sqrt(1e-3))#testing perfect case
 
         
         return [y_depth, y_v]
