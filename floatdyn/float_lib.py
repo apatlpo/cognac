@@ -244,7 +244,7 @@ class autonomous_float():
                               'verbose':1} #testing perfect case
             A_coeff = g*kalman_default['rho']/((kalman_default['a']+1)*kalman_default['m'])
             #gamme_alpha: diag(v(10cm/s)/dt, z(1cm/s)/dt,v(tick_to_volume)/dt, A*Ve(tick_to_volume))**2
-            kalman_default['gamma_alpha'] = np.diag([(1e-1/kalman_default['dt'])**2, (1e-2/kalman_default['dt'])**2,
+            kalman_default['gamma_alpha'] = (kalman_default['dt']**2)*np.diag([(1e-1/kalman_default['dt'])**2, (1e-2/kalman_default['dt'])**2,
                     (self.piston.tick_to_volume/kalman_default['dt'])**2,
                     (10.*self.piston.tick_to_volume/kalman_default['dt'])**2])
             #np.array([(1e-4)**2, (1e-5)**2, (1e-7)**2, (1e-7)**2]), [0] et [2] ?
@@ -390,6 +390,7 @@ class autonomous_float():
                     ctrl['rho'] = self.rho_cte
                     ctrl['a'] = self.a
                     ctrl['waterp'] = waterp
+                    ctrl['kalman'] = self.kalman
 
 
                 if ctrl['mode'] == 'kalman_feedback':
@@ -520,7 +521,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None):
         #f2 = f._f(z, ctrl['waterp'], ctrl['L'])/f.m
         u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
                              ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'],
-                             ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
+                             ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'], ctrl)
 
     elif ctrl['mode'] == 'kalman_feedback':
         u = control_kalman_feedback(z_t, ctrl)
@@ -538,7 +539,7 @@ def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
     return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
 
 def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
-                     lbd1, lbd2, delta):
+                     lbd1, lbd2, delta, ctrl):
 
     ''' Control feedback of the float position
     Parameters
@@ -576,11 +577,21 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
         length scale that defines the zone of influence around the target depth [m]
     '''
 
+    kalman = ctrl['kalman']
+
     A = g*rho/((a+1)*m)
     B = c1/(2*L*(1+a))
     x1 = -dz
+    #x1 = kalman.x_hat[0]
     dx1 = -d2z
+    
+    
     x2 = -z
+    #x2 = kalman.x_hat[1]
+    
+    #dx1 = -A*(x2 + kalman.x_hat[3] -gammaV*x2)-B*abs(x1)*x1 #ajout + self.volume_offset
+    #dx1 = -A*(x2 + x[3] -self.gammaV*x[1])-self.B_coeff*abs(x[0])*x[0] #ajout + self.volume_offset
+    
     x2bar = -z_t
     e = x2bar - x2
     D = 1 + (e**2)/(delta**2)
@@ -1101,8 +1112,8 @@ class Kalman(object):
         #self.B_coeff = 0.5*self.rho*self.Cf/((self.a+1)*self.m)
         self.B_coeff = self.c1/(2*self.L*(1+self.a))
 
-        self.A = np.array([[1., 0., -self.A_coeff, -self.A_coeff],
-    					[0, 1., 0, 0],
+        self.A = np.eye(4)+self.dt*np.array([[0, 0, 0, -self.A_coeff],
+    					[1., 0, 0, 0],
     					[0, 0, 0., 0],
     					[0, 0, 0, 0.]])
 
