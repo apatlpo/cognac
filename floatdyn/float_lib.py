@@ -585,35 +585,9 @@ def control_kalman_feedback(depth_target, ctrl):
         Position of the float, 0. at the surface and negative downward [m]
     '''
     kalman = ctrl['kalman']
-    #x_control = np.array([0.0, 0.0, 0.0]) # v,z,V
-    #x_control[0] = kalman.x_hat[0]
-    #x_control[1] = kalman.x_hat[1]
-    #x_control[2] = (kalman.x[2]-kalman.volume_offset)+kalman.x_hat[2]
-    #chi_kalman = kalman.x_hat[3]
+
+
     x_control = kalman.x_hat
-
-
-#    lbd1 = 2/ctrl['tau'] # /s
-#    lbd2 = 1/ctrl['tau']**2 # /s^2
-#    nu = ctrl['nu'] # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
-#    delta = ctrl['delta'] #length scale that defines the zone of influence around the target depth, assesed by simulation
-#
-#    A = kalman.A_coeff
-#    B = kalman.B_coeff
-#    x1 = x_control[0]
-#    dx1 = -kalman.A_coeff*(x_control[2]+x_control[3]-kalman.gammaV*x_control[1])-kalman.B_coeff*abs(x_control[0])*x_control[0] #ajout + self.volume_offset
-#    x2 = x_control[1]
-#    x2bar = depth_target
-#    e = x2bar - x2
-#    D = 1 + (e**2)/(delta**2)
-#    y = x1 - nu*np.arctan(e/delta)
-#    dy = dx1 + nu*x1/(delta*D)
-#
-#    if x1 < 0:
-#        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) + 2*B*x1*dx1) + gammaV*x1
-#    else: #dz >= 0 not differentiable at value 0 : critical value
-#        return (1/A)*(lbd1*dy + lbd2*y + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2) - 2*B*x1*dx1) + gammaV*x1
-
 
     return kalman.control(x_control, depth_target, ctrl)
 
@@ -1106,13 +1080,7 @@ class Kalman(object):
             print('z', z)
             print('v', v)
             print('gamma', self.gamma)
-            #print('0,z,v,0', [0,z,v,0])
 
-#    def kalman(self, x0, gamma0, u, y, A):
-#        x1,gamma1 = self.kalman_predict(x0, gamma0, u, A)
-#        xup,Gup = self.kalman_correc(x1, gamma1, y)
-#        # note: order does not seem to matter
-#        return xup, Gup
 
     def kalman(self,x0,gamma0,u,y,A):
         xup,Gup = self.kalman_correc(x0, gamma0, y)
