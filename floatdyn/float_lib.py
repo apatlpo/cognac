@@ -52,7 +52,7 @@ class autonomous_float():
         if 'model' in kwargs:
             if kwargs['model'] == 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
                 params = {'r': 0.06, 'L': 0.5, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
-                params['m'] = 1000. * np.pi * params['r'] ** 2 * params['L']
+                params['m'] = 9.0 #1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] == 'IFREMER':
                 params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 13.315
@@ -894,10 +894,12 @@ class piston():
 
         """
         # default parameters: ENSTA float
-        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.0175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
+        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
                   'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'delta_volume_max': 1.718e-4/240.0, 'vol_max': 1.718e-4,'vol_min': 0., \
-                  'omega_max': 124.*2.*np.pi/60., 'omega_min': 12.4*2.*np.pi/60.,
+                  'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
                   'efficiency':.1}
+	#48 encoches
+	#vitesse max de 60 encoches par seconde
         #
         params.update(kwargs)
         for key,val in params.items():
