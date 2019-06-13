@@ -55,10 +55,10 @@ class autonomous_float():
         #
         if 'model' in kwargs:
             if kwargs['model'] == 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
-                params = {'r': 0.06, 'L': 0.5, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 9.0 #1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] == 'IFREMER':
-                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 13.315
         #values coming from Paul Troadec's report
         #
@@ -228,12 +228,12 @@ class autonomous_float():
         dt = 1. #s
         depth_rms = 1e-3 # m
         vel_rms = depth_rms/dt # mm/s
-        t2V = self.piston.tick_to_volume  #tick_to_volume = 7.158577010132995e-08
+        t2V = self.piston.vol_error  #vol_error = 7.158577010132995e-08
         gamma_alpha_gammaE = 1e-8
         kalman_default = {'dt': dt, 'm': self.m, 'a': self.a,
                           'rho': self.rho_cte,
                           'c1': self.c1, 'L' : self.L,
-                          'tick_to_volume': t2V,
+                          'vol_error': t2V,
                           'gammaV' : self.gammaV,
                           'gamma': np.diag([vel_rms**2, depth_rms**2,
                                             gamma_alpha_gammaE**2, (10.*t2V)**2]),
@@ -347,39 +347,43 @@ class autonomous_float():
             self.v=self.piston.vol
             u = 0
             if ctrl:
-                ctrl_default = {'tau': 60., 'dz_nochattering': 0., 'mode': 'sliding',
-                                'waterp': waterp, 'Lv': self.L, 'dt_ctrl': dt_step} #,
-                #                'f': self}
+                
+                ctrl_default={'dt_ctrl': dt_step, 'dz_nochattering': 0.}
+                if ctrl['mode'] == 'sliding':
+                    ctrl_default = {'tau': 60., 'mode': 'sliding',
+                                    'waterp': waterp, 'Lv': self.L, } #,
+                    #                'f': self}
+                elif ctrl['mode'] == 'pid':
+                    ctrl_default['error'] = 0.
+                    ctrl_default['integral'] = 0.
+                #
+                elif ctrl['mode'] == 'feedback':
+                    ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl_default['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
+                    ctrl_default['gamma'] = self.gamma #mechanical compressibility [1/dbar]
+                    ctrl_default['L'] = self.L
+                    ctrl_default['c1'] = self.c1
+                    ctrl_default['m'] = self.m
+                    ctrl_default['gammaV'] = self.gammaV
+                    ctrl_default['rho'] = self.rho_cte
+                    ctrl_default['a'] = self.a
+                    ctrl_default['waterp'] = waterp
+                #
+                elif ctrl['mode'] == 'kalman_feedback':
+                    ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
+                    ctrl_default['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
+                    ctrl_default['kalman'] = self.kalman
+                
+                #print(ctrl_default)
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
                 self.ctrl = ctrl
                 for key, val in ctrl_default.items():
                     if key not in ['waterp','f']:
                         print(' ctrl: '+key+' = '+str(val))
-                #
-                if ctrl['mode'] == 'pid':
-                    ctrl['error'] = 0.
-                    ctrl['integral'] = 0.
-                #
-                if ctrl['mode'] == 'feedback':
-                    ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
-                    ctrl['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
-                    ctrl['gamma'] = self.gamma #mechanical compressibility [1/dbar]
-                    ctrl['L'] = self.L
-                    ctrl['c1'] = self.c1
-                    ctrl['m'] = self.m
-                    ctrl['gammaV'] = self.gammaV
-                    ctrl['rho'] = self.rho_cte
-                    ctrl['a'] = self.a
-                    ctrl['waterp'] = waterp
-                #
-                if ctrl['mode'] == 'kalman_feedback':
-                    ctrl['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
-                    ctrl['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
-                    ctrl['kalman'] = self.kalman
-
+                        
         elif v is None:
             if not hasattr(self,'v'):
                 self.v=0.
@@ -557,7 +561,6 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
     delta: float
         length scale that defines the zone of influence around the target depth [m]
     '''
-
     A = g*rho/((a+1)*m)
     B = c1/(2*L*(1+a))
     x1 = -dz
@@ -871,12 +874,13 @@ class piston():
             d = phi/2/pi x lead
         tick_per_turn: [no dimension]
             number of notches on the thumbwheel of the piston
-        tick_to_volume: [m^3]
-            variation of volume corresponding to each notch on the thumbwheel of the piston
-        velocity_volume_max: [m^3/s]
-            variation of volume max per second possible in the float thanks to the piston
-        tick_offset: [no dimension]
-            offset number of notches when the volume in the float is vol_min
+        d_increment: [m]
+            smallest variation of translation motion for the piston
+        increment_error: [no dimension]
+            coefficient measuring the accuracy on the smallest variation of
+            translation motion for the piston (coefficient >= 1)
+        vol_error: [m^3]
+            smallest variation of volume possible for the piston
         phi_max: float [rad]
             maximum angle of rotation
         phi_min: float [rad]
@@ -885,8 +889,6 @@ class piston():
             screw displacement when piston is fully out
         d_min: float [m]
             screw displacement when piston is fully in
-        delta_volume_max: float [m^3/s]
-            maximal variation of volume possible per second
         vol_max: float [m^3]
             volume when piston is fully out
         vol_min: float [m^3]
@@ -902,8 +904,8 @@ class piston():
         
         
         # default parameters
-        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
-          'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'delta_volume_max': 1.718e-4/240.0, 'vol_max': 1.718e-4,'vol_min': 0., \
+        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, \
+          'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_max': 1.718e-4,'vol_min': 0., \
           'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
           'efficiency':.1}
         
@@ -911,19 +913,21 @@ class piston():
         
         if model == 'ENSTA':
             # default parameters: ENSTA float
-            params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'delta_volume_max': 1.718e-4/240.0, 'vol_max': 1.718e-4,'vol_min': 0., \
+            params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, \
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_max': 1.718e-4,'vol_min': 0., \
                       'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
-                      'efficiency':.1}
+                      'efficiency':.1, 'increment_error' : 1}
+            self.d_increment = params['lead']/params['tick_per_turn']
         
         elif model == 'IFREMER':
             # default parameters: IFREMER float
-            params = {'r': 0.045, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, 'tick_offset': 250.0, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'delta_volume_max': 1.718e-4/240.0, 'vol_max': 1.718e-4,'vol_min': 0., \
-                      'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
-                      'efficiency':.1}
+            params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.001, 'tick_per_turn': 48, \
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.102, 'vol_max': 2.688e-5,'vol_min': 0., \
+                      'omega_max': 12.985, 'omega_min': 1.299,
+                      'efficiency':.1, 'd_increment' : 2.12e-5, 'increment_error' : 5}
             #verifier si importance lead et angles lors de la regulation, ecraser parametres redondants
-        
+            #vol_max = 0.090*np.pi*(0.0195/2)**2+0.030*np.pi*(0.080/2)**2 = 0.00017767473601917923 = 1.7777e-4
+            #ancienne valeur pour vol_max : 3.046e-5
         
 	#48 encoches
 	#vitesse max de 60 encoches par seconde
@@ -951,8 +955,7 @@ class piston():
         #
         self.phi_max = self.d2phi(self.d_max)
         self.update_dvdt()
-        self.tick_to_volume = (self.lead/self.tick_per_turn)*((self.r)**2)*np.pi
-        self.velocity_volume_max = 30*self.tick_to_volume #the motor can reach until 30 rotations a seconde
+        self.vol_error = self.d_increment*((self.r)**2)*np.pi*self.increment_error
 
     def __repr__(self):
         strout='Piston parameters and state: \n'
@@ -962,14 +965,12 @@ class piston():
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
         strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
         strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
-        strout+='  tick_to_volume  = %.2e m^3        - variation of volume corresponding to each notch on the thumbwheel of the piston\n'%(self.tick_to_volume)
-        strout+='  velocity_volume_max  = %.2f m^3/s        - variation of volume max per second possible in the float thanks to the piston\n'%(self.velocity_volume_max)
-        strout+='  tick_offset  = %.2f no dimension        - offset number of notches when the volume in the float is vol_min\n'%(self.tick_offset)
+        strout+='  d_increment  = %.2f m        - smallest variation of translation motion for the piston\n'%(self.d_increment)
+        strout+='  vol_error  = %.2e m^3        - smallest variation of volume possible for the piston\n'%(self.vol_error)
         strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
         strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
         strout+='  d_max = %.2f mm        - maximum piston displacement\n'%(self.d_max*1.e3)
         strout+='  d_min = %.2f mm        - minimum piston displacement\n'%(self.d_min*1.e3)
-        strout+='  delta_volume_max = %.2f m^3/s    - maximal variation of volume possible per second\n'%(self.delta_volume_max)
         strout+='  vol_min = %.2f cm^3    - min volume displaced\n'%(self.vol_min*1.e6)
         strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
         strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
