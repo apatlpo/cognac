@@ -56,10 +56,11 @@ class autonomous_float():
         if 'model' in kwargs:
             if kwargs['model'] == 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
                 params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
-                params['m'] = 9.0 #1000. * np.pi * params['r'] ** 2 * params['L']
+                params['m'] = 9.045 #1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] == 'IFREMER':
-                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.94819e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
-                params['m'] = 13.315
+                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params['m'] = 11.630 #avec 16 piles : 11.630, avec 32 piles : 13.315
+        #old compressibility value for ifremer : 3.94819e-06
         #values coming from Paul Troadec's report
         #
         self.model = kwargs['model']
@@ -921,13 +922,22 @@ class piston():
         
         elif model == 'IFREMER':
             # default parameters: IFREMER float
-            params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.001, 'tick_per_turn': 48, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.102, 'vol_max': 2.688e-5,'vol_min': 0., \
-                      'omega_max': 12.985, 'omega_min': 1.299,
-                      'efficiency':.1, 'd_increment' : 2.12e-5, 'increment_error' : 5}
+            params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 1, \
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.090, 'vol_max': 2.688e-5,'vol_min': 0., \
+                      'translation_max': 0.12/5600*225, 'translation_min': 0.12/5600*10,
+                      'efficiency':.1, 'd_increment' :0.12/5600, 'increment_error' : 10}
+
+            #translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
+            #translation_min fixé arbitrairement pour l'instant
+            
+            #d_increment le 4 vient du facteur 4 de la roue codeuse de thomas
+            #d_increment = 0.12/5600 ou 0.090/4200 selon la prise en compte ou non du gros piston
+
+            #dmax = 0.102 ancienne valeur pour IFREMER
+            
             #verifier si importance lead et angles lors de la regulation, ecraser parametres redondants
-            #vol_max = 0.090*np.pi*(0.0195/2)**2+0.030*np.pi*(0.080/2)**2 = 0.00017767473601917923 = 1.7777e-4
-            #ancienne valeur pour vol_max : 3.046e-5
+            #vol_max = 0.090*np.pi*(0.0195/2)**2+0.030*np.pi*(0.080/2)**2 = 1.777e-4
+       
         
 	#48 encoches
 	#vitesse max de 60 encoches par seconde
@@ -939,19 +949,23 @@ class piston():
         #if 'd_min' not in kwargs:
         #    self.d_min = self.vol2d(self.vol_min)
         # (useless as will reset d_min to 0.)
-        if 'vol_max' in kwargs:
-            if 'd_max' in kwargs:
-                self.d_max=kwargs['d_max']
+        if 'vol_max' in params:
+            if 'd_max' in params:
+                self.d_max=params['d_max']
                 self.vol_min = self.d2vol_no_volmin(self.d_min)
 
             self.d_max = self.vol2d(self.vol_max)
             print('Piston max displacement set from max volume')
-        elif 'd_max' in kwargs:
+        elif 'd_max' in params:
             self.vol_max = self.d2vol(self.d_max)
             print('Piston max volume set from max displacement')
         else:
             print('You need to provide d_max or vol_max')
             sys.exit()
+        if 'translation_max' in params:
+            self.omega_max = params['translation_max']*2.*np.pi/self.lead
+        if 'translation_min' in params:
+            self.omega_min = params['translation_min']*2.*np.pi/self.lead
         #
         self.phi_max = self.d2phi(self.d_max)
         self.update_dvdt()
@@ -964,7 +978,7 @@ class piston():
         strout+='  d     = %.2f mm        - present piston displacement\n'%(self.d*1.e3)
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
         strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
-        strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
+        #strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
         strout+='  d_increment  = %.2f m        - smallest variation of translation motion for the piston\n'%(self.d_increment)
         strout+='  vol_error  = %.2e m^3        - smallest variation of volume possible for the piston\n'%(self.vol_error)
         strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
@@ -1379,3 +1393,66 @@ def t_modulo_dt(t, dt, dt_step):
 #
 def interp(z_in, v_in, z_out):
     return interp1d(z_in, v_in, kind='linear', fill_value='extrapolate')(z_out)
+
+
+
+
+#Functions necesary to estimate parameters for feedback regulation
+
+
+def omega2dvdt(omega=12.4*2.*np.pi/60., lead=0.0175, r_piston=0.025):
+
+    '''
+    Function computing the piston flow u
+    parameters:
+        omega: float [rad/s]
+            current rotation rate, omega=dphi/dt
+            for ENSTA float, omega_max = 124.*2.*np.pi/60.,
+            omega_min = 12.4*2.*np.pi/60.
+        lead: float [m]
+            screw lead (i.e. displacement after one screw revolution)
+            d = phi/2/pi x lead
+        r_piston: float [m]
+            piston radius
+    '''
+    return omega*lead/2.*r_piston**2
+
+
+def zf(t, params):
+
+    '''
+    Function computing the float position depending on time and float parameters
+    for initial conditions zf = 0 and vf = 0 at the beginning
+    '''
+    rho_w = 997 #kg.m^3
+    g = 9.81 #m.s^-2
+    return (params['u']*g*rho_w*t**3) /6 /params['m'] /(1+params['a'])
+
+
+def vf(t, params):
+
+    '''
+    Function computing the float speed depending on time and float parameters
+    for initial conditions zf = 0 and vf = 0 at the beginning
+    '''
+    rho_w = 997 #kg.m^3
+    g = 9.81 #m.s^-2
+    return (params['u']*g*rho_w*t**2) / (2*params['m']*(1+params['a']))
+
+
+def tv(v, params):
+
+    '''
+    Function computing the time necessary for the float to reach the speed v
+    '''
+    rho_w = 997 #kg.m^3
+    g = 9.81 #m.s^-2
+    return np.sqrt(2*v*params['m']*(1+params['a'])/(g*rho_w*params['u']))
+
+
+def zv(v, params):
+
+    '''
+    Function computing the distance necessary for the float to reach the speed v
+    '''
+    return zf(tv(v,params),params)
