@@ -350,7 +350,7 @@ class autonomous_float():
             _f = self._f(self.z, waterp, self.Lv)
             #
             # state estimation starts here
-            if kalman and t_modulo_dt(t, kalman['dt'], dt_step)::
+            if kalman and t_modulo_dt(t, kalman['dt'], dt_step):
                 #kalman.update(y)
                 pass
             #
@@ -595,6 +595,15 @@ def plot_float_density(z, f, waterp, mid=False):
     ax.grid()
     iz = np.argmin(np.abs(z))
     ax.set_title('extra mass @surface: %.1f g' %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
+    #
+    ax.annotate('',
+                xy=(ax.get_xticks()[1], ax.get_ylim()[1]-10),
+                xytext=(ax.get_xticks()[2], ax.get_ylim()[1]-10),
+                arrowprops=dict(arrowstyle="<->"))
+    ax.text(ax.get_xticks()[1]*.5+ax.get_xticks()[2]*.5,ax.get_ylim()[1]-10,
+            '%.1f g'%(f.V*(ax.get_xticks()[2]-ax.get_xticks()[1])*1e3),
+            {'ha': 'center', 'va': 'bottom'})
+    return ax
 
 #
 def plot_float_volume(z, f, waterp):
@@ -925,7 +934,7 @@ class Kalman(object):
 
     def update(self, y):
         # update self.x and self.
-
+        pass
 
 
 

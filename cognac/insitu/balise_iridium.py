@@ -8,7 +8,8 @@ Created on Thu Mar 15 10:13:48 2018
 import os, sys
 from glob import glob
 import struct
-import datetime
+import datetime as dt
+#from datetime import datetime
 import time
 import imaplib
 import email
@@ -20,7 +21,8 @@ import cartopy.crs as ccrs
 import warnings
 warnings.filterwarnings('ignore')
 
-import xarray as xr
+# cognac data and tools
+from .gps import *
 
 def Interrogation_Planeurs(mailbox='INBOX', sbd_dir='../data/iridium'):
     #
@@ -81,8 +83,10 @@ def Interrogation_Planeurs(mailbox='INBOX', sbd_dir='../data/iridium'):
 
 
 
-def Analyse_SBD(IMEI, sbd_dir='../data/iridium'):
+def analyse_sbd(IMEI, sbd_dir='../data/iridium'):
     #
+    # init gps container
+    gp = gps()
     #print('search sbd files in '+sbd_dir)
     if not (os.path.exists(sbd_dir)):
         return
@@ -108,7 +112,8 @@ def Analyse_SBD(IMEI, sbd_dir='../data/iridium'):
                 s=struct.Struct(">IBIIBBB")
                 T_POSITION_REPORT_DATA=s.unpack(Data_SBD[i*16+3:i*16+19])
                 GPS_TIME=T_POSITION_REPORT_DATA[0] \
-                         +time.mktime(datetime.datetime.strptime("06/01/1980 00:00:00", "%d/%m/%Y %H:%M:%S").timetuple())
+                         +time.mktime(dt.datetime.strptime("06/01/1980 00:00:00",
+                                "%d/%m/%Y %H:%M:%S").timetuple())
                 RECORD_TYPE=(T_POSITION_REPORT_DATA[1]&0x80)>>7
                 RESERVED=(T_POSITION_REPORT_DATA[1]&0x40)>>6
                 NUMBER_SATS_VISIBLE=((T_POSITION_REPORT_DATA[1]&0x38)>>3) +3
@@ -119,21 +124,23 @@ def Analyse_SBD(IMEI, sbd_dir='../data/iridium'):
                 GPS_FIX_ACCURACY=T_POSITION_REPORT_DATA[4]
                 TIME_TO_FIX=T_POSITION_REPORT_DATA[5]
                 if RECORD_TYPE==1:
-                    ti = datetime.datetime.fromtimestamp(GPS_TIME)
-                    Liste_points.append((GPS_LONGITUDE, GPS_LATITUDE, time))
-                    f_synthese.write( ti.strftime('%d/%m/%Y %H:%M:%S')+ "\t"+str(GPS_LATITUDE)
+                    ti = dt.datetime.fromtimestamp(GPS_TIME)
+                    #Liste_points.append((GPS_LONGITUDE, GPS_LATITUDE, time))
+                    gp.add(GPS_LONGITUDE, GPS_LATITUDE, ti)
+                    f_synthese.write( ti.strftime('%d/%m/%Y %H:%M:%S')+ "\t"
+                                      +str(GPS_LATITUDE)
                                       + "\t"+str(GPS_LONGITUDE)+'\r\n')
     f_synthese.close()
     #
-    if Liste_points:
-        x = [t[0] for t in Liste_points]
-        y = [t[1] for t in Liste_points]
-        t = [t[2] for t in Liste_points]
-    else:
-        x, y, t = None, None, None
+    #if Liste_points:
+    #    x = [t[0] for t in Liste_points]
+    #    y = [t[1] for t in Liste_points]
+    #    t = [t[2] for t in Liste_points]
+    #else:
+    #    x, y, t = None, None, None
 
-    return x, y, t
-
+    #return x, y, t
+    return gp
 
 def lstr(l):
     return '%d deg %.5f' %(int(l), (l-int(l))*60.)
@@ -209,5 +216,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

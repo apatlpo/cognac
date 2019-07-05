@@ -11,12 +11,7 @@ import cartopy.crs as ccrs
 from cartopy.io import shapereader
 from  matplotlib.dates import date2num, datetime, num2date
 import gsw
-from scipy.interpolate import interp1d
 from netCDF4 import Dataset
-
-# gps data
-#import pynmea2
-
 
 #
 # ------------------------- Event/Deployment objects -----------------------------------
@@ -24,12 +19,6 @@ from netCDF4 import Dataset
 
 #_ll_lim_default = [6.4, 6.6, 42.92, 43.2]
 _ll_lim_default = [6., 6.6, 42.7, 43.2]
-
-def dec2sec(dec):
-    # return coordinates with seconds
-    idec = np.trunc(dec)
-    sec = np.abs(dec - idec) * 60.
-    return [idec, sec]
 
 class event(object):
 
@@ -43,9 +32,12 @@ class event(object):
 
         # time information
         # assumes: 02/09/2016 05:35:00 7 17.124 43 19.866
-        self.time = datetime.datetime(int(l[0][6:10]), int(l[0][3:5]), int(l[0][0:2]),
-                                      int(l[1][0:2]), int(l[1][3:5]), int(l[1][6:8]))
-        #self.time = date2num(self.dtime)
+        self.time = datetime.datetime(int(l[0].split('/')[2]),
+                                      int(l[0].split('/')[1]),
+                                      int(l[0].split('/')[0]),
+                                      int(l[1].split(':')[0]),
+                                      int(l[1].split(':')[1]),
+                                      int(l[1].split(':')[2]))
 
         if len(l)>2:
             # lon, lat data
@@ -88,51 +80,52 @@ class deployment(object):
         print(self.end)
         return ''
 
-    def plot_time(self, axis=None, y0=0., dy=0.5, **kwargs):
-        t0 = self.start.time
-        t1 = self.end.time
-        rect = Rectangle((t0, y0-dy/2.), t1-t0, dy, **kwargs)
-        axis.add_patch(rect)
-        return
+    def plot_time(self, ax, y0=0., dy=0.5, **kwargs):
+        #t0 = self.start.time
+        #t1 = self.end.time
+        #rect = Rectangle((t0, y0-dy/2.), t1-t0, dy, **kwargs)
+        #ax.add_patch(rect)
+        #ax.plot([t0,t1],[y0,y0],lw=20)
+        #ax.plot([self.start.time,self.end.time],[y0,y0],lw=20)
+        pass
 
-    def plot_map(self, map, line=True, label=True, **kwargs):
+    def plot_on_map(self, ax, line=True, label=False, yshift=1, s=30,
+                    **kwargs):
         #
-        x0, y0 = map(self.start.lon, self.start.lat)
-        map.scatter(x0, y0, 10, marker='o', **kwargs)
+        x0, y0 = self.start.lon, self.start.lat
+        x1, y1 = self.end.lon, self.end.lat
         #
-        x1, y1 = map(self.end.lon, self.end.lat)
-        map.scatter(x1, y1, 10, marker='*', **kwargs)
+        ax.scatter(x0, y0, s, marker='o', **kwargs)
+        ax.scatter(x1, y1, s, marker='*', **kwargs)
         #
         if line:
-            map.plot([x0,x1],[y0,y1],'-', **kwargs)
+            ax.plot([x0, x1], [y0, y1], '-', **kwargs)
         if label:
-            xoffset = 0.02 * (map.xmax - map.xmin)
-            yoffset = 0.02 * (map.ymax - map.ymin)
-            plt.text(x0+xoffset, y0-yoffset, self.label, fontsize=9, **kwargs)
+            xb, yb = ax.get_xbound(), ax.get_ybound()
+            xoffset = 0.02 * (xb[1]-xb[0])
+            yoffset = 0.02 * (yb[1]-yb[0]) * yshift
+            if type(label) is not str:
+                label = self.label
+            ax.text(x0+xoffset, y0+yoffset, label, fontsize=10)
         return
 
 class objdict(object):
-    ''' Dict like object that treats path and color as attributes
+    ''' Dict like object that treats some parameters (e.g. path and color)
+    as attributes
     '''
     def __init__(self, *args,**kwargs):
-        self._dict= dict(*args,**kwargs)
+        self._dict = dict(*args,**kwargs)
+        self._skip = ['path']
 
     def __getitem__(self, key):
-        #if key not in ['path', 'color']:
-        #    val = self._dict[key]
-        #return val
         return self._dict[key]
 
     def __setitem__(self, key, value):
-        #if key not in ['path', 'color']:
-        #    self._dict[key] = value
-        #else:
-        #    setattr(self, key, value)
         self._dict[key] = value
 
     def __iter__(self):
         for key, value in self._dict.items():
-            if key not in ['path', 'color']:
+            if key not in self._skip:
                 yield value
 
     def __str__(self):
@@ -171,75 +164,44 @@ class campaign(object):
                     self._units[i]['path'] = os.path.join(self.path,value)
                 else:
                     self._units[i][d[1:]] = value
+                    self._units[i]._skip.append(d[1:])
 
-    def __getitem__(self,item):
+    def __getitem__(self, item):
         if item in self._units:
             return self._units[item]
         else:
             return None
+
+    def __iter__(self):
+        for key, value in self._units.items():
+            yield value
+
+    def items(self):
+        for key, value in self._units.items():
+            yield key, value
+
+    def plot_overview(self):
+        pass
 
     def load_data(self):
         ''' load processed data
         '''
         pass
 
-
-#
-# ------------------------- source data -----------------------------------
-#
-
-# need to move to an independent file
-
-class emission_data(object):
-    ''' Data container for emission data
-    '''
-    def __init__(self, time=None, sound=None, lon=None, lat=None):
-        if time is None:
-            self.time = []
-            self.sound = []
-            self.lon = []
-            self.lat = []
-        else:
-            self.time = time
-            self.sound = sound
-            self.lon = lon
-            self.lat = lat
-
-    def add(self, time, sound, lon, lat, sort=False):
-        self.time+=time
-        self.sound+=sound
-        self.lon+=lon
-        self.lat+=lat
-        #self.time.append(time)
-        #self.sound.append(sound)
-        #self.lon.append(lon)
-        #self.lat.append(lat)
-        if sort:
-            i=np.argsort(time)
-            self.time=self.time[i]
-            self.sound=self.sound[i]
-            self.lon=self.lon[i]
-            self.lat=self.lat[i]
-
-    def trim(self, t0, t1):
-        ''' select data between t0 and t1 '''
-        self.sound = [gsound for i, gsound in enumerate(self.sound) if self.time[i] > t0 and self.time[i] < t1]
-        self.lon = [glon for i, glon in enumerate(self.lon) if self.time[i] > t0 and self.time[i] < t1]
-        self.lat = [glat for i, glat in enumerate(self.lat) if self.time[i] > t0 and self.time[i] < t1]
-        ltime = [gtime for i, gtime in enumerate(self.time) if self.time[i] > t0 and self.time[i] < t1]
-        self.time=ltime
-
-    def clean(self, d):
-        '''Use deployment to clean gps data'''
-        self.trim(d.start.time, d.end.time)
-
-
-
-
 #
 # ------------------------- Maps and Metrics -----------------------------------
 #
 
+def dec2sec(dec):
+    # return coordinates with seconds
+    idec = np.trunc(dec)
+    sec = np.abs(dec - idec) * 60.
+    return [idec, sec]
+
+def ll_degmin(l):
+    ''' Print lon/lat, deg + minutes decimales
+    '''
+    return '%d deg %.5f' %(int(l), (l-int(l))*60.)
 
 def get_distance(lon1 , lat1 , lon2 , lat2):
     ''' wrapper around distance calculator
@@ -257,18 +219,11 @@ def get_distance(lon1 , lat1 , lon2 , lat2):
     return earth_radius * np.arccos(np.sin(d2r*lat1)*np.sin(d2r*lat2) \
                                   +np.cos(d2r*lat1)*np.cos(d2r*lat2)*np.cos(d2r*(lon2-lon1)))
 
-
 #def _distance_on_spherical_earth(lon1 , lat1 , lon2 , lat2) :
 #    earth_radius = 6373.e3
 #    d2r=np.pi/180.
 #    return earth_radius * np.arccos(np.sin(d2r*lat1)*np.sin(d2r*lat2) \
 #                                  +np.cos(d2r*lat1)*np.cos(d2r*lat2)*np.cos(d2r*(lon2-lon1)))
-
-def lstr(l):
-    ''' Print lon/lat, deg + minutes decimales
-    '''
-    return '%d deg %.5f' %(int(l), (l-int(l))*60.)
-
 
 def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
     crs = ccrs.PlateCarree()

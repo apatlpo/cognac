@@ -100,9 +100,9 @@ class gps(object):
             setattr(self, key, p[key])
 
     #
-    def plot(self, fac, label='', linestyle='-', lw=2., t0=None, t1=None, ll_lim=None, \
-              **kwargs):
-        fig, ax, crs = fac
+    def plot(self, ax, label='', linestyle='-', lw=2.,
+             t0=None, t1=None, ll_lim=None,
+             **kwargs):
         lon, lat = self.d['lon'], self.d['lat']
         if t0 is not None:
             lon = lon[t0:]
@@ -112,14 +112,15 @@ class gps(object):
             lat = lat[:t1]
         if ll_lim is None:
             ll_lim = ax.get_extent()
-        ax.plot(lon, lat, lw=lw, linestyle=linestyle, transform=crs, **kwargs)
+        ax.plot(lon, lat, lw=lw, linestyle=linestyle, **kwargs)
         if 'marker' in kwargs:
             del kwargs['marker']
-        ax.scatter(lon[0], lat[0], 10, marker='o', transform=crs, **kwargs)
-        ax.scatter(lon[-1], lat[-1], 10, marker='*', transform=crs, **kwargs)
+        ax.scatter(lon[0], lat[0], 10, marker='o', **kwargs)
+        ax.scatter(lon[-1], lat[-1], 10, marker='*', **kwargs)
         xoffset = 0.01 * (ll_lim[1] - ll_lim[0])
         yoffset = 0.01 * (ll_lim[3] - ll_lim[2])
-        plt.text(lon[-1]+xoffset, lat[-1]-yoffset, label, fontsize=9, transform=crs, **kwargs)
+        ax.text(lon[-1]+xoffset, lat[-1]-yoffset, label,
+                fontsize=9, **kwargs)
 
     def plot_bk(self):
 
