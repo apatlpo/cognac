@@ -1108,6 +1108,13 @@ class waterp():
             print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
 
+    def get_compressibility(self, z):
+        ' returns compressibility in 1/Pa'
+        p = self.get_p(z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.density.kappa(SA, CT, p)*1e4
+    
     def update_eta(self, eta, t):
         ''' Update isopycnal diplacement and water velocity given a function
         for isopycnal displacement and time
