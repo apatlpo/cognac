@@ -417,12 +417,13 @@ class autonomous_float():
             _f = self._f(self.z, waterp, self.Lv)
             #
             # state estimation starts here
-            if self.kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
-                self.kalman.update_kalman(u, self.v, self.z)
-                #
-                self.x_kalman.append(self.kalman.x_hat)
-                self.gamma_kalman.append(np.diag(self.kalman.gamma))
-                self.t_kalman.append(t)
+            if kalman:
+                if self.kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
+                    self.kalman.update_kalman(u, self.v, self.z)
+                    #
+                    self.x_kalman.append(self.kalman.x_hat)
+                    self.gamma_kalman.append(np.diag(self.kalman.gamma))
+                    self.t_kalman.append(t)
 
             #
             # control starts here
@@ -445,14 +446,16 @@ class autonomous_float():
 
             # Ve
             #self.Ve = _f/g/self.rho - gamma_e * self.z - self.v
+            self.gammaV = self.gamma*self.volume(z=self.z, waterp=waterp) #m^2 #ajout
             self.Ve = _f/(g*self.rho_cte) - self.gammaV * self.z - self.v
-
 
             # store
             if log:
                 if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
                     self.log.store(t=t, z=self.z, w=self.w, v=self.v, dwdt=_f/self.m, Ve=self.Ve,
-                                   gammaV=self.gammaV, u=u, z_kalman=self.kalman.x_hat[1],
+                                   gammaV=self.gammaV, u=u)
+                    if kalman:
+                        self.log.store(z_kalman=self.kalman.x_hat[1],
                                    w_kalman=self.kalman.x_hat[0],gammaE_kalman=self.kalman.x_hat[2],
                                    Ve_kalman=self.kalman.x_hat[3], gamma_diag1=self.kalman.gamma[0,0],
                                    gamma_diag2=self.kalman.gamma[1,1],gamma_diag3=self.kalman.gamma[2,2],
@@ -700,7 +703,8 @@ def plot_float_density(z, f, waterp, mid=False):
     ax.plot(rho_f_vmax, z, '-+', color='orange', label='rho float vmax', markevery=10)
     ax.plot(rho_f_vmin, z, '--', color='orange', label='rho float vmin')
     if mid:
-        rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
+        #rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
+        rho_f_vmid=f.rho(p=p, temp=temp, v=mid)
         ax.plot(rho_f_vmid, z, '--', color='grey', label='rho float vmid')
     ax.legend()
     ax.set_xlabel('[kg/m^3]')
@@ -818,7 +822,7 @@ def plot_log(f, z_target=None, eta=None, title=None):
 
 
 # build scenarios
-def descent(Tmax, zt, f, waterp):
+def descent(Tmax, zt, f, waterp, zstart = 0):
     ''' Contruct trajectory of a descent to some depth
     Parameters
     ----------
@@ -836,10 +840,10 @@ def descent(Tmax, zt, f, waterp):
     # build time line
     t = np.arange(0.,Tmax,1.)
     # build trajectory
-    z_target = np.zeros_like(t)
+    #z_target = np.zeros_like(t)
     dzdt_target = -t*afmax/2./f.m
     dzdt_target[np.where(-dzdt_target>wmax)]=-wmax
-    z_target = np.cumsum(dzdt_target*1.)
+    z_target = zstart + np.cumsum(dzdt_target*1.)
     z_target[np.where(z_target<zt)] = zt
 
     # convert to callable function
@@ -924,11 +928,11 @@ class piston():
             # default parameters: IFREMER float
             params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 1, \
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.090, 'vol_max': 2.688e-5,'vol_min': 0., \
-                      'translation_max': 0.12/5600*225, 'translation_min': 0.12/5600*10,
-                      'efficiency':.1, 'd_increment' :0.12/5600, 'increment_error' : 10}
+                      'translation_max': 0.12/5600.*225., 'translation_min': 0.12/5600.*10.,
+                      'efficiency':.1, 'd_increment' : 0.12/5600., 'increment_error' : 10}
 
             #translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
-            #translation_min fixé arbitrairement pour l'instant
+            #translation_min fixe arbitrairement pour l'instant
             
             #d_increment le 4 vient du facteur 4 de la roue codeuse de thomas
             #d_increment = 0.12/5600 ou 0.090/4200 selon la prise en compte ou non du gros piston
