@@ -1,0 +1,202 @@
+import numpy as np
+from scipy.interpolate import interp1d
+from netCDF4 import Dataset
+import matplotlib.pyplot as plt
+import gsw
+
+
+#----------------------------------- core --------------------------------------
+
+#
+class waterp():
+    ''' Data holder for a water column based on either:
+     - in situ temperature, salinity, pressure profiles
+     - the World Ocean Atlas (WOA) climatology, see:
+        https://www.nodc.noaa.gov/OC5/woa18/
+
+    Should base this on pandas !!
+
+    Parameters
+    ----------
+    pressure: np.ndarray, optional
+        pressure in dbar
+    temperature: np.ndarray, optional
+        in situ temperature in degC
+    salinity: np.ndarray, optional
+        salinity in PSU
+    lon: float, optional
+        longitude of the selected location
+    lat: float, optional
+        latitude of the selected location
+
+    '''
+
+    def __init__(self, pressure=None, temperature=None, salinity=None,
+                       lon=None, lat=None, name=None):
+
+        self._pts, self._woa = False, False
+
+        if all([pressure, temperature, salinity, lon, lat]):
+            self._load_from_pts(pressure, temperature, salinity,
+                                lon, lat, name)
+        elif all([lon ,lat]):
+            self._load_from_woa(lon,lat,name)
+        else:
+            print('Inputs missing')
+
+    def _load_from_pts(self, pressure, temperature, salinity, lon, lat,
+                       name):
+        self._pts=True
+        #
+        self.lon, self.lat = lon, lat
+        #
+        self.p = pressure
+        self.z = gsw.z_from_p(self.p, self.lat)
+        #
+        self.temp, self.s = temperature, salinity
+        # derive absolute salinity and conservative temperature
+        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        # isopycnal displacement and velocity
+        self.eta = 0.
+        self.detadt = 0.
+        #
+        if name is None:
+            self.name = 'Provided water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+
+    def _load_from_woa(self, lon, lat, name):
+        self._woa=True
+        #
+        self._tfile = 'woa18_A5B7_t00_01.nc'
+        nc = Dataset(self._tfile,'r')
+        #
+        glon = nc.variables['lon'][:]
+        glat = nc.variables['lat'][:]
+        ilon = np.argmin(np.abs(lon-glon))
+        ilat = np.argmin(np.abs(lat-glat))
+        self.lon = glon[ilon]
+        self.lat = glat[ilat]
+        #
+        self.z = -nc.variables['depth'][:].data
+        self.p = gsw.p_from_z(self.z,self.lat)
+        #
+        self.temp = nc.variables['t_an'][0,:,ilat,ilon]
+        nc.close()
+        #
+        self._sfile = 'woa18_A5B7_s00_01.nc'
+        nc = Dataset(self._sfile,'r')
+        self.s = nc.variables['s_an'][0,:,ilat,ilon]
+        nc.close()
+        # derive absolute salinity and conservative temperature
+        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        # isopycnal displacement and velocity
+        self.eta = 0.
+        self.detadt = 0.
+        #
+        if name is None:
+            self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+
+
+    def show_on_map(self):
+        if self._woa:
+            nc = Dataset(self._tfile,'r')
+            glon = nc.variables['lon'][:]
+            glat = nc.variables['lat'][:]
+            temps = nc.variables['t_an'][0,0,:,:]
+            nc.close()
+            #
+            crs=ccrs.PlateCarree()
+            plt.figure(figsize=(10, 5))
+            ax = plt.axes(projection=crs)
+            hdl = ax.pcolormesh(glon,glat,temps,transform = crs,cmap=plt.get_cmap('CMRmap_r'))
+            ax.plot(self.lon,self.lat,'*',markersize=10,markerfacecolor='CadetBlue',markeredgecolor='w',transform=crs)
+            ax.coastlines(resolution='110m')
+            ax.gridlines()
+            plt.colorbar(hdl,ax=ax)
+            ax.set_title('sea surface temperature [degC]')
+            plt.show()
+        else:
+            print('No map to show')
+
+    def __repr__(self):
+        plt.figure(figsize=(7,5))
+        ax = plt.subplot(121)
+        ax.plot(self.get_temp(self.z),self.z,'k')
+        ax.set_ylabel('z [m]')
+        ax.set_title('in situ temperature [degC]')
+        plt.grid()
+        ax = plt.subplot(122)
+        ax.plot(self.get_s(self.z),self.z,'k')
+        ax.set_yticklabels([])
+        #ax.set_ylabel('z [m]')
+        ax.set_title('practical salinity [psu]')
+        plt.grid()
+        return self.name
+
+    def get_temp(self,z):
+        ''' get in situ temperature
+        '''
+        #return interp(self.z, self.temp, z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        p = self.get_p(z)
+        return gsw.conversions.t_from_CT(SA,CT,p)
+
+    def get_s(self, z):
+        ''' get practical salinity
+        '''
+        #return interp(self.z, self.s, z-self.eta)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        p = self.get_p(z)
+        return gsw.conversions.SP_from_SA(SA, p, self.lon, self.lat)
+
+    def get_p(self, z):
+        ''' get pressure
+        '''
+        return interp(self.z, self.p, z)
+
+    def get_theta(self, z):
+        ''' get potential temperature
+        '''
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.conversions.pt_from_CT(SA,CT)
+
+    def get_rho(self, z, ignore_temp=False):
+        p = self.get_p(z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        if ignore_temp:
+            CT[:]=self.CT[0]
+            print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
+        return gsw.density.rho(SA, CT, p)
+
+    def get_compressibility(self, z):
+        ' returns compressibility in 1/Pa'
+        p = self.get_p(z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.density.kappa(SA, CT, p)*1e4
+
+    def update_eta(self, eta, t):
+        ''' Update isopycnal diplacement and water velocity given a function
+        for isopycnal displacement and time
+
+        Parameters
+        ----------
+        eta: func
+            Isopycnal as a function time
+        t: float
+            Time in seconds
+        '''
+        self.eta = eta(t)
+        self.detadt = (eta(t+.1)-eta(t-.1))/.2
+
+
+#----------------------------------- utils -------------------------------------
+
+#
+def interp(z_in, v_in, z_out):
+    return interp1d(z_in, v_in, kind='linear', fill_value='extrapolate')(z_out)
