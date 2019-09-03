@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+s2m = 1./60.
+
 class logger():
     ''' Store a log of the float trajectory
 
@@ -53,11 +55,11 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     state = log['state']
     t = state['time']
     ax = plt.subplot(321)
-    ax.plot(t / 60., state['z'], label='z')
+    ax.plot(t *s2m, state['z'], label='z')
     if z_target is not None:
-        ax.plot(t / 60., z_target(t), color='r', label='target')
+        ax.plot(t *s2m, z_target(t), color='r', label='target')
         if eta is not None:
-            ax.plot(t / 60., z_target(t) + eta(t), color='green', label='target+eta')
+            ax.plot(t *s2m, z_target(t) + eta(t), color='green', label='target+eta')
     ax.legend(loc=0)
     ax.set_ylabel('z [m]')
     if title is not None:
@@ -68,10 +70,10 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     if z_target is not None:
         if hasattr(f, 'ctrl'):
             # (x,y) # width # height
-            ax.fill_between(t / 60., t * 0. - f.ctrl['dz_nochattering'],
+            ax.fill_between(t *s2m, t * 0. - f.ctrl['dz_nochattering'],
                             t * 0. + f.ctrl['dz_nochattering'],
                             facecolor='orange', alpha=.5)
-        ax.plot(t / 60., state['z'].values - z_target(t), label='z-ztarget')
+        ax.plot(t *s2m, state['z'].values - z_target(t), label='z-ztarget')
         ax.legend()
         ax.set_ylabel('[m]')
         ax.set_ylim([-2., 2.])
@@ -82,13 +84,13 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         ax.yaxis.tick_right()
     #
     ax = plt.subplot(323, sharex=ax)
-    ax.plot(t / 60., state['w'] * 1.e2, label='dzdt')
+    ax.plot(t *s2m, state['w'] * 1.e2, label='dzdt')
     ax.legend()
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
     ax = plt.subplot(324)
-    ax.plot(t / 60., state['v'] * 1.e6, '-', label='v')
+    ax.plot(t *s2m, state['v'] * 1.e6, '-', label='v')
     # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
     ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='k')
     ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='k')
@@ -99,7 +101,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     ax.yaxis.tick_right()
     #
     ax = plt.subplot(325, sharex=ax)
-    ax.plot(t / 60., state['dwdt'], label='d2zdt2')
+    ax.plot(t *s2m, state['dwdt'], label='d2zdt2')
     ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
@@ -110,7 +112,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         t = piston['time']
         #
         ax = plt.subplot(326, sharex=ax)
-        ax.plot(t / 60., piston['work'], label='piston work')
+        ax.plot(t *s2m, piston['work'], label='piston work')
         ax.legend()
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
@@ -121,5 +123,56 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         # extrapolate to a 30d long simulation
         nrg = (piston['work'].iloc[-1]-piston['work'].iloc[0]) \
                 /(t.iloc[-1]-t.iloc[0])
-        print( 'Extrapolated energy conssumption: %.1f Wh/day = %.1f Wh/30day'
+        print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day'
               %( nrg*86400, nrg*86400*30. ))
+
+def plot_kalman(log, f):
+    state, t = log['state'], log['state']['time']*s2m
+    k, tk = log['kalman'], log['kalman']['time']*s2m
+    #
+    fig = plt.figure(figsize=(15,10))
+    #
+    ax=fig.add_subplot(231)
+    ax.plot(t, state['z'],'-', label = "real depth")
+    ax.plot(tk,-k['z_kalman'], label ="estimated depth")
+    ax.set_title("depth as a function of time")
+    #ax.set_xlabel("t (min)")
+    ax.set_ylabel("z (m)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(232)
+    ax.plot(t,state['w'], label = "real velocity")
+    ax.plot(tk,-k['w_kalman'], label ="estimated velocity")
+    ax.set_title("velocity as a function of time")
+    #ax.set_xlabel("t (min)")
+    ax.set_ylabel("w (m/s)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(233)
+    ax.plot(tk,k['gammaV'], label = "float compressibility x float volume")
+    ax.plot(tk,k['gammaE_kalman'], label ="estimated equivalent compressibility")
+    ax.set_title("equivalent compressibility as a function of time")
+    ax.set_xlabel("t (min)")
+    ax.set_ylabel("gammaE (m^2)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(234)
+    ax.plot(tk,k['Ve']*1e6, label = "real Ve volume")
+    ax.plot(tk,k['Ve_kalman']*1e6, label ="estimated Ve volume")
+    ax.set_title("volume Ve as a function of time")
+    ax.set_xlabel("t (min)")
+    ax.set_ylabel("Ve (cm^3)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(235)
+    ax.plot(t,state['dwdt'], label = "real acceleration")
+    ax.plot(tk,-k['dwdt_kalman'], label ="estimated acceleration")
+    ax.set_title("acceleration dw/dt as a function of time")
+    ax.set_xlabel("t (min)")
+    ax.set_ylabel("dw/dt (m.s^-2)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')

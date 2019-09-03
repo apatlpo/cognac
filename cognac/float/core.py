@@ -4,10 +4,9 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve, brentq
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
 
 from .log import *
-from .regulation import control
+from .regulation import control, kalman_filter
 
 # useful parameters
 g=9.81
@@ -43,7 +42,6 @@ class autonomous_float():
             'c0': 0
             'c1': 1
 
-
         '''
         # default parameters
         params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15., 'a': 1., 'c0': 0., 'c1': 1.}
@@ -51,13 +49,14 @@ class autonomous_float():
         #
         if 'model' in kwargs:
             if kwargs['model'] == 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
-                params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0.,
+                          'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 9.045 #1000. * np.pi * params['r'] ** 2 * params['L']
             elif kwargs['model'] == 'IFREMER':
-                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0., 'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0.,
+                          'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
                 params['m'] = 11.630 #avec 16 piles : 11.630, avec 32 piles : 13.315
-        #old compressibility value for ifremer : 3.94819e-06
-        #values coming from Paul Troadec's report
+        # compressibility from Paul Troadec's report (p39)
         #
         self.model = kwargs['model']
         params.update(kwargs)
@@ -97,7 +96,8 @@ class autonomous_float():
             else:
                 v = 0.
         if p is not None and temp is not None:
-            return self.m/(self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0))+v)
+            _V = self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0)) + v
+            return self.m/_V
         elif z is not None and waterp is not None:
             # assumes thermal equilibrium
             p, tempw = waterp.get_p(z), waterp.get_temp(z)
@@ -123,19 +123,36 @@ class autonomous_float():
         z = fsolve(lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp), 0.)[0]
         return z
 
-    def adjust_m(self, p_eq, temp_eq, rho_eq):
+    def adjust_m(self, p_eq, temp_eq, rho_eq, offset=0.):
         ''' Find mass that needs to be added in order to be at equilibrium
             prescribed pressure, temperature, density
+
+            Parameters
+            ----------
+            p_eq: Float
+                pressure for equilibrium
+            temp_eq: Float
+                temperature for equilibrium
+            rho_eq: float
+                density for equilibrium
+            offset: float
+                offset in grams to add to the float mass
+
+
         '''
         def func(m):
             self.m = m
             return rho_eq - self.rho(p=p_eq, temp=temp_eq)
-        m0=self.m
+        m0 = self.m
         self.m = fsolve(func,self.m)[0]
-        print('%.1f g were added to the float in order to be at equilibrium at %.0f dbar \n'%((self.m-m0)*1.e3,p_eq))
+        self.m += offset*1e-3
+        print('%.1f g '%((self.m-m0)*1.e3+offset) + \
+              ' were added to the float in order to be at equilibrium' + \
+              ' at %.0f dbar \n'%(p_eq))
 
     def init_piston(self,**kwargs):
         self.piston = piston(self.model, **kwargs)
+        self.v = self.piston.vol
 
     def piston_update_vol(self, vol=None):
         if vol is None:
@@ -238,13 +255,10 @@ class autonomous_float():
                                                   gamma_alpha_gammaE**2, (10.*t2V)**2] ),
                           'gamma_beta': np.diag([depth_rms**2]),
                           'verbose': verbose}
-
         if type(kalman) is dict:
             kalman_default.update(kalman)
-
         x0 = [-w, -z, gammaE, Ve]
-
-        self.kalman = Kalman(x0, **kalman_default)
+        self.kalman = kalman_filter(x0, **kalman_default)
         self.x_kalman = [self.kalman.x_hat]
         self.gamma_kalman =[np.diag(self.kalman.gamma)]
         self.t_kalman = [t0]
@@ -332,7 +346,6 @@ class autonomous_float():
         #
         if gammaE is None:
             gammaE = self.gammaV
-
         #kalman initialisation
         if kalman:
             self.init_kalman(kalman, w, z, gammaE, Ve,
@@ -347,7 +360,7 @@ class autonomous_float():
                 self.piston.update_vol(v)
             self.v=self.piston.vol
             self.piston_work = 0.
-            u = 0
+            u = 0.
             if ctrl:
                 ctrl_default={'dt_ctrl': dt_step, 'dz_nochattering': 0.}
                 if ctrl['mode'] == 'sliding':
@@ -386,12 +399,11 @@ class autonomous_float():
                         print(' ctrl: '+key+' = '+str(val))
                 #
                 _log['piston'] = ['u','work']
-
         elif v is None:
             if not hasattr(self,'v'):
-                self.v=0.
+                self.v = 0.
         else:
-            self.v=v
+            self.v = v
         v0 = self.v
         #
         if Lv is None:
@@ -415,10 +427,6 @@ class autonomous_float():
             if kalman:
                 if self.kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
                     self.kalman.update_kalman(u, self.v, self.z)
-                    #
-                    self.x_kalman.append(self.kalman.x_hat)
-                    self.gamma_kalman.append(np.diag(self.kalman.gamma))
-                    self.t_kalman.append(t)
             #
             # control starts here
             if piston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
@@ -426,7 +434,9 @@ class autonomous_float():
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
                     if verbose>0:
-                        print('[-w, -z, -dwdt, gammaV, Ve]',[-self.w, -self.z, -self.dwdt, self.gammaV, self.Ve])
+                        print('[-w, -z, -dwdt, gammaV, Ve]',
+                              [-self.w, -self.z, -self.dwdt, self.gammaV,
+                               self.Ve])
                     u = control(self.z, z_target, ctrl, t=t, w=self.w,
                                 dwdt=self.dwdt, v=self.v) #, f=ctrl['f'])
                     #
@@ -438,9 +448,7 @@ class autonomous_float():
                     self.piston_work += dt_step \
                                 * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
                                 * watth /self.piston.efficiency
-
-            # Ve
-            #self.Ve = _f/g/self.rho - gamma_e * self.z - self.v
+            # Ve, gammaV
             self.gammaV = self.gamma*self.volume(z=self.z, waterp=waterp) #m^2 #ajout
             self.Ve = _f/(g*self.rho_cte) - self.gammaV * self.z - self.v
 
@@ -469,13 +477,18 @@ class autonomous_float():
             t+=dt_step
         print('... time stepping done')
 
+    def plot_logs(self, **kwargs):
+        ''' wrapper around plot_logs
+        '''
+        plot_logs(self.log, self, **kwargs)
+
 
 #---------------------------- piston -------------------------------------------
 class piston():
     ''' Piston object, facilitate float buoyancy control
     '''
 
-    def __init__(self,model, **kwargs):
+    def __init__(self, model, **kwargs):
         """ Piston object
 
         Parameters
@@ -529,7 +542,7 @@ class piston():
           'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
           'efficiency':.1}
 
-        if model == 'ENSTA':
+        if model.lower() == 'ensta':
             # default parameters: ENSTA float
             params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, \
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_max': 1.718e-4,'vol_min': 0., \
@@ -537,10 +550,10 @@ class piston():
                       'efficiency':.1, 'increment_error' : 1}
             self.d_increment = params['lead']/params['tick_per_turn']
 
-        elif model == 'IFREMER':
+        elif model.lower() == 'ifremer':
             # default parameters: IFREMER float
             params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 1, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.090, 'vol_max': 2.688e-5,'vol_min': 0., \
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0., \
                       'translation_max': 0.12/5600.*225., 'translation_min': 0.12/5600.*10.,
                       'efficiency':.1, 'd_increment' : 0.12/5600., 'increment_error' : 10}
 
@@ -578,6 +591,8 @@ class piston():
         else:
             print('You need to provide d_max or vol_max')
             sys.exit()
+        if 'vol' not in kwargs:
+            self.vol = self.vol_max
         if 'translation_max' in params:
             self.omega_max = params['translation_max']*2.*np.pi/self.lead
         if 'translation_min' in params:
@@ -694,7 +709,7 @@ class piston():
 
 # ----------------------------- utils ------------------------------------------
 
-def plot_float_density(z, f, waterp, mid=False):
+def plot_float_density(z, f, waterp, mid=False, ax=None):
     ''' Plot float density with respect to that of water profile
 
     Parameters
@@ -708,13 +723,13 @@ def plot_float_density(z, f, waterp, mid=False):
     #
     rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
     #
-    plt.figure()
-    ax = plt.subplot(111)
+    if ax is None:
+        plt.figure()
+        ax = plt.subplot(111)
     #
-    #iz = np.argmin(np.abs(z+500))
-    rho_f = f.rho(p=p, temp=temp, v=0.)
-    rho_f_vmax=f.rho(p=p, temp=temp, v=f.piston.vol_max)
-    rho_f_vmin=f.rho(p=p, temp=temp, v=f.piston.vol_min)
+    #rho_f = f.rho(p=p, temp=temp, v=0.)
+    rho_f_vmax = f.rho(p=p, temp=temp, v=f.piston.vol_max)
+    rho_f_vmin = f.rho(p=p, temp=temp, v=f.piston.vol_min)
     #
     ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w, facecolor='red', interpolate=True)
     ax.plot(rho_w, z, 'b', label='rho water')
@@ -730,19 +745,21 @@ def plot_float_density(z, f, waterp, mid=False):
     ax.set_ylabel('z [m]')
     ax.grid()
     iz = np.argmin(np.abs(z))
-    ax.set_title('extra mass @surface: %.1f g' %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
+    ax.set_title('extra mass @surface, piston out: %.1f g' \
+                    %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
     #
     ax.annotate('',
                 xy=(ax.get_xticks()[1], ax.get_ylim()[1]-10),
                 xytext=(ax.get_xticks()[2], ax.get_ylim()[1]-10),
                 arrowprops=dict(arrowstyle="<->"))
-    ax.text(ax.get_xticks()[1]*.5+ax.get_xticks()[2]*.5,ax.get_ylim()[1]-10,
+    ax.text(ax.get_xticks()[1]*.5+ax.get_xticks()[2]*.5,
+            ax.get_ylim()[1]-10,
             '%.1f g'%(f.V*(ax.get_xticks()[2]-ax.get_xticks()[1])*1e3),
             {'ha': 'center', 'va': 'bottom'})
     return ax
 
 #
-def plot_float_volume(z, f, waterp):
+def plot_float_volume(z, f, waterp, ax=None):
     ''' Plot float volume with respect to depth
 
     Parameters
@@ -756,8 +773,9 @@ def plot_float_volume(z, f, waterp):
     #
     rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
     #
-    plt.figure()
-    ax = plt.subplot(111)
+    if ax is None:
+        plt.figure()
+        ax = plt.subplot(111)
     #
     #iz = np.argmin(np.abs(z+500))
     v = f.volume(p=p, temp=temp, v=0.)
@@ -771,6 +789,7 @@ def plot_float_volume(z, f, waterp):
     ax.set_ylim((np.amin(z),0.))
     ax.set_ylabel('z [m]')
     ax.grid()
+    return ax
 
 def compute_gamma(R,t,material=None,E=None,mu=.35):
     ''' Compute the compressibility to pressure of a cylinder

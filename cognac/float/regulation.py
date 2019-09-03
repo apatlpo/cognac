@@ -130,23 +130,21 @@ def control_kalman_feedback(depth_target, v, ctrl):
 
 #------------------------------- kalman filter ---------------------------------
 
-class Kalman(object):
+class kalman_filter(object):
     ''' Kalman filter for float state estimation
     '''
 
     def __init__(self, x0, **params):
-
         for key,val in params.items():
             setattr(self,key,val)
-
+        #
         self.x_hat = np.array(x0)
-        #self.u = 0
-
+        #
         self.A_coeff = g*self.rho/((self.a+1)*self.m)
         self.B_coeff = self.c1/(2*self.L*(1+self.a))
-
         self.A = self.dt * \
-                 np.array([[-self.B_coeff*abs(self.x_hat[0]), self.A_coeff*self.x_hat[2], self.A_coeff*self.x_hat[1], -self.A_coeff],
+                 np.array([[-self.B_coeff*abs(self.x_hat[0]), self.A_coeff*self.x_hat[2],
+                            self.A_coeff*self.x_hat[1], -self.A_coeff],
                            [1., 0., 0, 0],
                            [0, 0, 0., 0],
                            [0, 0, 0, 0.]])
@@ -175,7 +173,6 @@ class Kalman(object):
             print('u', u)
             print('z', z)
             print('gamma', self.gamma)
-
 
     def kalman(self,x0,gamma0,u, v, y, A):
         xup,Gup = self.kalman_correc(x0, gamma0, y)
@@ -217,19 +214,16 @@ class Kalman(object):
         return dx
 
     def control(self, x, v, depth_target, ctrl):
-
         l1 = 2/ctrl['tau'] # /s
         l2 = 1/ctrl['tau']**2 # /s^2
         nu = ctrl['nu'] # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
         delta = ctrl['delta'] #length scale that defines the zone of influence around the target depth, assesed by simulation
-
 
         e = -depth_target - x[1]
         y = x[0] - nu*atan(e/delta)
 
         dx1 = -self.A_coeff*(x[3] - x[2]*x[1] + v) \
               -self.B_coeff*x[0]*np.abs(x[0])
-
 
         D = 1. + (e/delta)**2
         dy = dx1 + nu*x[0]/(delta*D)
@@ -238,8 +232,6 @@ class Kalman(object):
             return (1/self.A_coeff)*(l1*dy + l2*y \
                     + nu/delta*(dx1*D + 2*e*x[0]**2/delta**2)/(D**2) \
                     + 2*self.B_coeff*x[0]*dx1) + x[2]*x[0]
-
-
         else:
             return (1/self.A_coeff)*(l1*dy + l2*y \
                     + nu/delta*(dx1*D + 2*e*x[0]**2/delta**2)/(D**2) \
