@@ -251,13 +251,12 @@ class autonomous_float():
 
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, Ve=None, t0=0., Lv=None,
-                  usepiston=False, z_target=None, gammaE=None,
+                  piston=False, z_target=None, gammaE=None,
                   ctrl=None,
                   kalman=None,
                   eta=lambda t: 0.,
-                  log=['t','z','w','v','dwdt', 'Ve', 'gammaV', 'u', 'z_kalman',
-                       'w_kalman', 'v_kalman', 'Ve_kalman', 'gamma_diag1',
-                       'gamma_diag2','gamma_diag3','gamma_diag4', 'dwdt_kalman', 'gammaE_kalman'], dt_store=60.,
+                  log=True,
+                  dt_log=10.,
                   log_nrg=True, p_float=1.e5,
                   verbose=0,
                   **kwargs):
@@ -284,8 +283,8 @@ class autonomous_float():
             Initial time [t]
         Lv: float
             Drag length scale [m]
-        usepiston: boolean, default is False
-            Turns piston usage [no dimension]
+        piston: boolean, default is False
+            Turns piston usage on and off [no dimension]
         z_target: function
             Target trajectory as a function of time [m]
         w_target: function
@@ -294,9 +293,9 @@ class autonomous_float():
             Contains control parameters
         eta: function
             Isopycnal displacement as a function of time
-        log: list of strings or False
-            List of variables that will logged
-        dt_store: float
+        log: boolean
+            List of variables that will logged, default to True
+        dt_log: float
             Time interval between log storage
         log_nrg: boolean, default is True
             Turns on/off nrg computation and storage
@@ -328,7 +327,8 @@ class autonomous_float():
                 w=self.w
         self.w = w
         self.dwdt = 0.
-
+        #
+        _log = {'state':['z','w','v','dwdt']}
         #
         if gammaE is None:
             gammaE = self.gammaV
@@ -336,15 +336,19 @@ class autonomous_float():
         #kalman initialisation
         if kalman:
             self.init_kalman(kalman, w, z, gammaE, Ve,
-                             usepiston, t0, verbose)
-
-        if usepiston:
+                             piston, t0, verbose)
+            _log['kalman'] = ['Ve', 'gammaV',
+                              'z_kalman','w_kalman', 'v_kalman', 'Ve_kalman',
+                              'gamma_diag1','gamma_diag2','gamma_diag3','gamma_diag4',
+                              'dwdt_kalman', 'gammaE_kalman']
+        #
+        if piston:
             if v is not None:
                 self.piston.update_vol(v)
             self.v=self.piston.vol
+            self.piston_work = 0.
             u = 0
             if ctrl:
-
                 ctrl_default={'dt_ctrl': dt_step, 'dz_nochattering': 0.}
                 if ctrl['mode'] == 'sliding':
                     ctrl_default = {'tau': 60., 'mode': 'sliding',
@@ -372,7 +376,7 @@ class autonomous_float():
                     ctrl_default['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
                     ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl_default['kalman'] = self.kalman
-
+                #
                 #print(ctrl_default)
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
@@ -380,6 +384,8 @@ class autonomous_float():
                 for key, val in ctrl_default.items():
                     if key not in ['waterp','f']:
                         print(' ctrl: '+key+' = '+str(val))
+                #
+                _log['piston'] = ['u','work']
 
         elif v is None:
             if not hasattr(self,'v'):
@@ -392,20 +398,13 @@ class autonomous_float():
             Lv = self.L
         self.Lv = Lv
         #
-        if log_nrg:
-            if 'nrg' not in log:
-                log.append('nrg')
-            self.nrg = 0. # Wh
         if log:
-            if hasattr(self,'log'):
-                delattr(self,'log')
-            self.log = logger(log)
+            self.log = {logname:logger(vars) for logname, vars in _log.items()}
         #
         print('Start time stepping for %d min ...'%(T/60.))
         #
         _f=0.
-        u = 0 #u initialisation for kalman
-
+        #u = 0 #u initialisation for kalman
         while t<t0+T:
             #
             # get vertical force on float
@@ -422,7 +421,7 @@ class autonomous_float():
                     self.t_kalman.append(t)
             #
             # control starts here
-            if usepiston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
+            if piston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
@@ -435,30 +434,32 @@ class autonomous_float():
                     self.piston.update(dt_step, u)
                     self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
-                if log_nrg and (self.v != v0):
-                    self.nrg += dt_step * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
-                                *watth /self.piston.efficiency
+                if self.v != v0:
+                    self.piston_work += dt_step \
+                                * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
+                                * watth /self.piston.efficiency
 
             # Ve
             #self.Ve = _f/g/self.rho - gamma_e * self.z - self.v
             self.gammaV = self.gamma*self.volume(z=self.z, waterp=waterp) #m^2 #ajout
             self.Ve = _f/(g*self.rho_cte) - self.gammaV * self.z - self.v
 
-            # store
-            if log:
-                if (dt_store is not None) and t_modulo_dt(t, dt_store, dt_step):
-                    self.log.store(t=t, z=self.z, w=self.w, v=self.v, dwdt=_f/self.m, Ve=self.Ve,
-                                   gammaV=self.gammaV, u=u)
-                    if kalman:
-                        self.log.store(z_kalman=self.kalman.x_hat[1],
-                                   w_kalman=self.kalman.x_hat[0],gammaE_kalman=self.kalman.x_hat[2],
-                                   Ve_kalman=self.kalman.x_hat[3], gamma_diag1=self.kalman.gamma[0,0],
-                                   gamma_diag2=self.kalman.gamma[1,1],gamma_diag3=self.kalman.gamma[2,2],
-                                   gamma_diag4=self.kalman.gamma[3,3], dwdt_kalman = -self.kalman.A_coeff*\
-                                   (self.kalman.x_hat[2] + self.kalman.x_hat[3] -self.kalman.gammaV*self.kalman.x_hat[1]) \
-                                   -self.kalman.B_coeff*abs(self.kalman.x_hat[0])*self.kalman.x_hat[0])
-                    if log_nrg:
-                        self.log.store(nrg=self.nrg)
+            # store log
+            if log and (dt_log is not None) and t_modulo_dt(t, dt_log, dt_step):
+                self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
+                                        dwdt=_f/self.m)
+                if piston:
+                    _info = {'time': t, 'u': u, 'work': self.piston_work}
+                    self.log['piston'].store(**_info)
+                if kalman:
+                    self.log['kalman'].store(time=t, z_kalman=self.kalman.x_hat[1],
+                               w_kalman=self.kalman.x_hat[0],gammaE_kalman=self.kalman.x_hat[2],
+                               Ve_kalman=self.kalman.x_hat[3], gamma_diag1=self.kalman.gamma[0,0],
+                               gamma_diag2=self.kalman.gamma[1,1],gamma_diag3=self.kalman.gamma[2,2],
+                               gamma_diag4=self.kalman.gamma[3,3], dwdt_kalman = -self.kalman.A_coeff*\
+                               (self.kalman.x_hat[2] + self.kalman.x_hat[3] -self.kalman.gammaV*self.kalman.x_hat[1]) \
+                               -self.kalman.B_coeff*abs(self.kalman.x_hat[0])*self.kalman.x_hat[0],
+                               Ve=self.Ve, gammaV=self.gammaV)
 
             # update variables
             self.z += dt_step*self.w

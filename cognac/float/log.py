@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 class logger():
@@ -11,39 +12,48 @@ class logger():
 
     '''
 
-    def __init__(self, var):
-        self.var = var
-        for item in var:
-            setattr(self, item, np.array([]))
+    def __init__(self, logs):
+        #self.var = var
+        #for item in var:
+        #    setattr(self, item, np.array([]))
+        #
+        self._df = pd.DataFrame(columns=['time']+logs)
+
+    def __getitem__(self,key):
+        ''' return column of the log
+        '''
+        if key is not 'time':
+            return self._df.set_index('time')[key]
+        else:
+            return self._df['time']
 
     def store(self, **kwargs):
         ''' Appends variables to the logger database:
-
         Usage:
-
-        log.store(t=10., v=1.)
-
+            log.store(time=10., v=1.)
         The above line will append values 10. and 1. to variables t and v respectively
-
         '''
-        for item in self.var:
-            if item in kwargs:
-                setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
+        #for item in self.var:
+        #    if item in kwargs:
+        #        setattr(self, item, np.hstack((getattr(self, item), kwargs[item])))
+        self._df = self._df.append(kwargs, ignore_index=True)
+        #self._df.update(kwargs)
+
+    def plot(self):
+        ax = self._df.set_index('time').plot(subplots=True)
+        for a in ax:
+            a.grid()
+        return ax
 
 #
-def plot_log(log, f, z_target=None, eta=None, title=None):
-    t = log.t
-    #
-    if hasattr(log,'nrg'):
-        # extrapolate to a 30d long simulation
-        nrg = (log.nrg[-1]-log.nrg[0])/(t[-1]-t[0])
-        print( 'Extrapolated energy conssumption: %.1f Wh/day = %.1f Wh/30day'
-              %( nrg*86400, nrg*86400*30. ))
+def plot_logs(log, f, z_target=None, eta=None, title=None):
     #
     plt.figure(figsize=(12, 10))
     #
+    state = log['state']
+    t = state['time']
     ax = plt.subplot(321)
-    ax.plot(t / 60., log.z, label='z')
+    ax.plot(t / 60., state['z'], label='z')
     if z_target is not None:
         ax.plot(t / 60., z_target(t), color='r', label='target')
         if eta is not None:
@@ -58,9 +68,10 @@ def plot_log(log, f, z_target=None, eta=None, title=None):
     if z_target is not None:
         if hasattr(f, 'ctrl'):
             # (x,y) # width # height
-            ax.fill_between(t / 60., t * 0. - f.ctrl['dz_nochattering'], t * 0. + f.ctrl['dz_nochattering'],
+            ax.fill_between(t / 60., t * 0. - f.ctrl['dz_nochattering'],
+                            t * 0. + f.ctrl['dz_nochattering'],
                             facecolor='orange', alpha=.5)
-        ax.plot(t / 60., log.z - z_target(t), label='z-ztarget')
+        ax.plot(t / 60., state['z'].values - z_target(t), label='z-ztarget')
         ax.legend()
         ax.set_ylabel('[m]')
         ax.set_ylim([-2., 2.])
@@ -71,13 +82,13 @@ def plot_log(log, f, z_target=None, eta=None, title=None):
         ax.yaxis.tick_right()
     #
     ax = plt.subplot(323, sharex=ax)
-    ax.plot(t / 60., log.w * 1.e2, label='dzdt')
+    ax.plot(t / 60., state['w'] * 1.e2, label='dzdt')
     ax.legend()
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
     ax = plt.subplot(324)
-    ax.plot(t / 60., log.v * 1.e6, '-', label='v')
+    ax.plot(t / 60., state['v'] * 1.e6, '-', label='v')
     # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
     ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='k')
     ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='k')
@@ -88,18 +99,27 @@ def plot_log(log, f, z_target=None, eta=None, title=None):
     ax.yaxis.tick_right()
     #
     ax = plt.subplot(325, sharex=ax)
-    ax.plot(t / 60., log.dwdt, label='d2zdt2')
+    ax.plot(t / 60., state['dwdt'], label='d2zdt2')
     ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
     ax.grid()
     #
-    if hasattr(log,'nrg'):
+    if 'piston' in log:
+        piston = log['piston']
+        t = piston['time']
+        #
         ax = plt.subplot(326, sharex=ax)
-        ax.plot(t / 60., log.nrg, label='nrg')
+        ax.plot(t / 60., piston['work'], label='piston work')
         ax.legend()
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
         ax.grid()
         ax.yaxis.set_label_position('right')
         ax.yaxis.tick_right()
+        #
+        # extrapolate to a 30d long simulation
+        nrg = (piston['work'].iloc[-1]-piston['work'].iloc[0]) \
+                /(t.iloc[-1]-t.iloc[0])
+        print( 'Extrapolated energy conssumption: %.1f Wh/day = %.1f Wh/30day'
+              %( nrg*86400, nrg*86400*30. ))
