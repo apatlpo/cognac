@@ -18,10 +18,10 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
         x2 = w
         #x3=self.V+self.v
         #f1=x2
-        f2 = f._f(z, ctrl['waterp'], ctrl['Lv'])/f.m
+        f2 = f.force(z, ctrl['waterp'], ctrl['Lv'])/f.m
         f3 = ( f.volume(z=z+.5, waterp=ctrl['waterp'])
              - f.volume(z=z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
-        df1, df2, df3 = f._df(f.z, ctrl['waterp'], ctrl['Lv'])
+        df1, df2, df3 = f.dforce(f.z, ctrl['waterp'], ctrl['Lv'])
         df1, df2, df3 = df1/f.m, df2/f.m, df3/f.m
         #
         d3y = ctrl['d3y_ctrl']*control_sliding(z, w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
@@ -38,7 +38,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
     elif ctrl['mode'] == 'feedback':
         ctrl['ldb1'] = 2/ctrl['tau'] # /s
         ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
-        #f2 = f._f(z, ctrl['waterp'], ctrl['L'])/f.m
+        #f2 = f.force(z, ctrl['waterp'], ctrl['L'])/f.m
         u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
                              ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'],
                              ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
@@ -239,7 +239,7 @@ class kalman_filter(object):
 
 
 #----------------------------- feedback parameters -----------------------------
-#Functions necesary to estimate parameters for feedback regulation
+# Functions to guide the estimation of feedback parameters
 
 def omega2dvdt(omega=12.4*2.*np.pi/60., lead=0.0175, r_piston=0.025):
     '''

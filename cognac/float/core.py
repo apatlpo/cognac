@@ -17,7 +17,7 @@ watth = 1e-6/3.6
 class autonomous_float():
 
     def __init__(self,**kwargs):
-        ''' Float constructor, the float is assumed to be cylinder-shaped
+        ''' Autonomous float object, the float is assumed to be cylinder-shaped
 
         Parameters
         ----------
@@ -26,39 +26,31 @@ class autonomous_float():
             L : float length [m]
             V : float volume [m^3]
             gamma : mechanical compressibility [1/dbar]
-            gammaV: compressibility times float volume [m^3/m]
             alpha : thermal compressibility [1/degC]
             temp0: reference temperature used for thermal compressibility [degC]
             a : float added mass [no dimension]
             c0, c1 : float drag parameters [no dimension]
 
-            All parameters are optional, default values are :
-            'r': 0.05
-            'L': 0.4
-            'gamma': 2.e-6
-            'alpha': 7.e-5
-            'temp0': 15
-            'a': 1
-            'c0': 0
-            'c1': 1
+            All parameters are optional, default values that of ifremer prototype
 
         '''
-        # default parameters
-        params = {'r': 0.05, 'L': 0.4, 'gamma': 2.e-6, 'alpha': 7.e-5, 'temp0': 15., 'a': 1., 'c0': 0., 'c1': 1.}
-        params['m']= 1000. * np.pi * params['r']**2 * params['L']
         #
-        if 'model' in kwargs:
-            if kwargs['model'] == 'ENSTA': #warning: gamma is unknown : it is the one of IFREMER
-                params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0.,
-                          'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
-                params['m'] = 9.045 #1000. * np.pi * params['r'] ** 2 * params['L']
-            elif kwargs['model'] == 'IFREMER':
-                params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0.,
-                          'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
-                params['m'] = 11.630 #avec 16 piles : 11.630, avec 32 piles : 13.315
+        if 'model' not in kwargs:
+            self.model = 'ifremer'
+        else:
+            self.model = kwargs['model']
+        #
+        if self.model.lower() == 'ifremer':
+            params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0.,
+                      'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+            params['m'] = 11.630
+        elif self.model.lower() == 'ensta':
+            params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0.,
+                      'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+            params['m'] = 9.045
+        # avec 16 piles : 11.630, avec 32 piles : 13.315
         # compressibility from Paul Troadec's report (p39)
         #
-        self.model = kwargs['model']
         params.update(kwargs)
         for key,val in params.items():
             setattr(self,key,val)
@@ -76,7 +68,7 @@ class autonomous_float():
         strout+='  r     = %.2f m      - float radius\n'%(self.r)
         strout+='  m     = %.2f kg     - float mass\n'%(self.m)
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
-        strout+='  rho_cte     = %.2e kg.cm^3   - float constant density\n'%(self.m/self.V*1.e6)
+        strout+='  rho_cte = m/V = %.2e kg.cm^3   - float baseline density\n'%(self.m/self.V*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
@@ -114,13 +106,15 @@ class autonomous_float():
         ''' Find volume that needs to be added in order to be at equilibrium
             prescribed pressure, temperature, density
         '''
-        v = fsolve(lambda x: rho_eq - self.rho(p=p_eq, temp=temp_eq, v=x),0.)[0]
+        _f = lambda x: rho_eq - self.rho(p=p_eq, temp=temp_eq, v=x)
+        v = fsolve(_f,0.)[0]
         return v
 
     def z4equilibrium(self, waterp):
-        ''' Find depth that where float is at equilibrium
+        ''' Find depth where float is at equilibrium
         '''
-        z = fsolve(lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp), 0.)[0]
+        _f = lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp)
+        z = fsolve(_f, 0.)[0]
         return z
 
     def adjust_m(self, p_eq, temp_eq, rho_eq, offset=0.):
@@ -138,43 +132,48 @@ class autonomous_float():
             offset: float
                 offset in grams to add to the float mass
 
-
         '''
-        def func(m):
+        def _f(m):
             self.m = m
             return rho_eq - self.rho(p=p_eq, temp=temp_eq)
         m0 = self.m
-        self.m = fsolve(func,self.m)[0]
+        self.m = fsolve(_f,self.m)[0]
         self.m += offset*1e-3
         print('%.1f g '%((self.m-m0)*1.e3+offset) + \
               ' were added to the float in order to be at equilibrium' + \
               ' at %.0f dbar \n'%(p_eq))
 
     def init_piston(self,**kwargs):
+        ''' wrapper around piston initializer
+        '''
         self.piston = piston(self.model, **kwargs)
         self.v = self.piston.vol
 
     def piston_update_vol(self, vol=None):
+        ''' wrapper around piston volume update
+        '''
         if vol is None:
             vol = self.piston.vol
         else:
             self.piston.update_vol(vol)
+        #
         self.v = vol
 
     def set_piston4equilibrium(self, p_eq, temp_eq, rho_eq):
-        ''' Adjust piston to be at equilibrium at a given pressure, temperature and density
+        ''' Adjust piston to be at equilibrium at a given pressure,
+            temperature and density
         '''
         self.v = self.piston.vol
         #
-        def func(vol):
+        def _f(vol):
             self.piston_update_vol(vol)
             return rho_eq - self.rho(p=p_eq, temp=temp_eq)
-        vol = brentq(func, self.piston.vol_min, self.piston.vol_max)
+        vol = brentq(_f, self.piston.vol_min, self.piston.vol_max)
         self.piston_update_vol(vol)
-        print('Piston reset : vol=%.1e cm^3  ' % (vol*1e6))
+        print('Piston reset for equilibrium : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
 
-    def _f(self, z, waterp, Lv, v=None, w=None):
+    def force(self, z, waterp, Lv, v=None, w=None):
         ''' Compute the vertical force exterted on the float
         '''
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
@@ -193,12 +192,15 @@ class autonomous_float():
         f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) #
         return f
 
-    def _df(self,z,waterp,Lv):
+    def dforce(self,z,waterp,Lv):
         ''' Compute gradients of the vertical force exterted on the float
         '''
-        df1 = ( self._f(z+5.e-2,waterp,Lv) - self._f(z-5.e-2,waterp,Lv) ) /1.e-1
-        df2 = ( self._f(z,waterp,Lv,w=self.w+5.e-3) - self._f(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
-        df3 = ( self._f(z,waterp,Lv,v=self.v+5.e-5) - self._f(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
+        df1 = ( self.force(z+5.e-2,waterp,Lv)
+                    - self.force(z-5.e-2,waterp,Lv) ) /1.e-1
+        df2 = ( self.force(z,waterp,Lv,w=self.w+5.e-3)
+                    - self.force(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
+        df3 = ( self.force(z,waterp,Lv,v=self.v+5.e-5)
+                    - self.force(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
         return df1, df2, df3
 
     def compute_bounds(self,waterp,zmin,zmax=0.):
@@ -209,14 +211,14 @@ class autonomous_float():
             v=self.piston.vol_max
         else:
             v=None
-        fmax=self._f(z,waterp,self.L,v=v,w=0.) # upward force
+        fmax=self.force(z,waterp,self.L,v=v,w=0.) # upward force
         #
         z=zmin
         if hasattr(self,'piston'):
             v=self.piston.vol_min
         else:
             v=None
-        fmin=self._f(z,waterp,self.L,v=v,w=0.) # downward force
+        fmin=self.force(z,waterp,self.L,v=v,w=0.) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
         wmax = np.sqrt( afmax * self.m*2*self.L / self.c1)
@@ -373,7 +375,7 @@ class autonomous_float():
                 #
                 elif ctrl['mode'] == 'feedback':
                     ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl_default['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl_default['nu'] = 0.03*2./np.pi # Set the limit speed : 3cm/s assesed by simulation
                     ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl_default['gamma'] = self.gamma #mechanical compressibility [1/dbar]
                     ctrl_default['L'] = self.L
@@ -386,7 +388,7 @@ class autonomous_float():
                 #
                 elif ctrl['mode'] == 'kalman_feedback':
                     ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl_default['nu'] = 0.10*2./np.pi # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
+                    ctrl_default['nu'] = 0.03*2./np.pi # Set the limit speed, 3cm/s assesed by simulation
                     ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
                     ctrl_default['kalman'] = self.kalman
                 #
@@ -415,18 +417,16 @@ class autonomous_float():
         #
         print('Start time stepping for %d min ...'%(T/60.))
         #
-        _f=0.
-        #u = 0 #u initialisation for kalman
+        _force=0.
         while t<t0+T:
             #
             # get vertical force on float
             waterp.update_eta(eta, t) # update isopycnal displacement
-            _f = self._f(self.z, waterp, self.Lv)
+            _force = self.force(self.z, waterp, self.Lv)
             #
-            # state estimation starts here
-            if kalman:
-                if self.kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
-                    self.kalman.update_kalman(u, self.v, self.z)
+            # update kalman state estimation
+            if kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
+                self.kalman.update_kalman(u, self.v, self.z)
             #
             # control starts here
             if piston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
@@ -448,32 +448,33 @@ class autonomous_float():
                     self.piston_work += dt_step \
                                 * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
                                 * watth /self.piston.efficiency
-            # Ve, gammaV
-            self.gammaV = self.gamma*self.volume(z=self.z, waterp=waterp) #m^2 #ajout
-            self.Ve = _f/(g*self.rho_cte) - self.gammaV * self.z - self.v
 
             # store log
             if log and (dt_log is not None) and t_modulo_dt(t, dt_log, dt_step):
                 self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
-                                        dwdt=_f/self.m)
+                                        dwdt=_force/self.m)
                 if piston:
                     _info = {'time': t, 'u': u, 'work': self.piston_work}
                     self.log['piston'].store(**_info)
                 if kalman:
-                    self.log['kalman'].store(time=t, z_kalman=self.kalman.x_hat[1],
-                               w_kalman=self.kalman.x_hat[0],gammaE_kalman=self.kalman.x_hat[2],
-                               Ve_kalman=self.kalman.x_hat[3], gamma_diag1=self.kalman.gamma[0,0],
-                               gamma_diag2=self.kalman.gamma[1,1],gamma_diag3=self.kalman.gamma[2,2],
-                               gamma_diag4=self.kalman.gamma[3,3], dwdt_kalman = -self.kalman.A_coeff*\
-                               (self.kalman.x_hat[2] + self.kalman.x_hat[3] -self.kalman.gammaV*self.kalman.x_hat[1]) \
-                               -self.kalman.B_coeff*abs(self.kalman.x_hat[0])*self.kalman.x_hat[0],
-                               Ve=self.Ve, gammaV=self.gammaV)
+                    _k = self.kalman
+                    # Ve, gammae
+                    _Ve = _force/(g*self.rho_cte) - self.gammaV * self.z - self.v
+                    #_gammae =
+                    self.log['kalman'].store(time=t, z_kalman=_k.x_hat[1],
+                               w_kalman=_k.x_hat[0],gammaE_kalman=_k.x_hat[2],
+                               Ve_kalman=_k.x_hat[3], gamma_diag1=_k.gamma[0,0],
+                               gamma_diag2=_k.gamma[1,1],gamma_diag3=_k.gamma[2,2],
+                               gamma_diag4=_k.gamma[3,3], dwdt_kalman = -_k.A_coeff*\
+                               (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
+                               -_k.B_coeff*abs(_k.x_hat[0])*_k.x_hat[0],
+                               Ve=_Ve, gammaV=self.gammaV)
 
             # update variables
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
-            self.w += dt_step*_f/(1+self.a)/self.m
-            self.dwdt = _f/(1+self.a)/self.m
+            self.w += dt_step*_force/(1+self.a)/self.m
+            self.dwdt = _force/(1+self.a)/self.m
             t+=dt_step
         print('... time stepping done')
 
@@ -488,7 +489,7 @@ class piston():
     ''' Piston object, facilitate float buoyancy control
     '''
 
-    def __init__(self, model, **kwargs):
+    def __init__(self, model='ifremer', **kwargs):
         """ Piston object
 
         Parameters
@@ -536,26 +537,25 @@ class piston():
             Piston efficiency, i.e. mechanical work produced over electrical work supplied
 
         """
-        # default parameters
-        params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, \
-          'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_max': 1.718e-4,'vol_min': 0., \
-          'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
-          'efficiency':.1}
 
-        if model.lower() == 'ensta':
+        if model.lower() == 'ifremer':
+            # default parameters: IFREMER float
+            params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0.,
+                      'omega': 0., 'lead': 1,
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0.,
+                      'translation_max': 0.12/5600.*225.,
+                      'translation_min': 0.12/5600.*10.,
+                      'efficiency':.1,
+                      'd_increment' : 0.12/5600.,'increment_error' : 10}
+        elif model.lower() == 'ensta':
             # default parameters: ENSTA float
-            params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.07, 'vol_max': 1.718e-4,'vol_min': 0., \
+            params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0.,
+                      'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48,
+                      'phi_min': 0., 'd_min': 0., 'd_max': 0.07,
+                      'vol_max': 1.718e-4,'vol_min': 0.,
                       'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
                       'efficiency':.1, 'increment_error' : 1}
             self.d_increment = params['lead']/params['tick_per_turn']
-
-        elif model.lower() == 'ifremer':
-            # default parameters: IFREMER float
-            params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0., 'omega': 0., 'lead': 1, \
-                      'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0., \
-                      'translation_max': 0.12/5600.*225., 'translation_min': 0.12/5600.*10.,
-                      'efficiency':.1, 'd_increment' : 0.12/5600., 'increment_error' : 10}
 
             #translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
             #translation_min fixe arbitrairement pour l'instant
