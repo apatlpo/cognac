@@ -83,7 +83,7 @@ class autonomous_float():
         ''' Returns float density i.e. mass over volume
         '''
         if v is None:
-            if hasattr(self,'v'):
+            if hasattr(self, 'v'):
                 v = self.v
             else:
                 v = 0.
@@ -173,7 +173,7 @@ class autonomous_float():
         print('Piston reset for equilibrium : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
 
-    def force(self, z, waterp, Lv, v=None, w=None):
+    def compute_force(self, z, waterp, Lv, v=None, w=None):
         ''' Compute the vertical force exterted on the float
         '''
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
@@ -192,15 +192,15 @@ class autonomous_float():
         f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) #
         return f
 
-    def dforce(self,z,waterp,Lv):
+    def compute_dforce(self,z,waterp,Lv):
         ''' Compute gradients of the vertical force exterted on the float
         '''
-        df1 = ( self.force(z+5.e-2,waterp,Lv)
-                    - self.force(z-5.e-2,waterp,Lv) ) /1.e-1
-        df2 = ( self.force(z,waterp,Lv,w=self.w+5.e-3)
-                    - self.force(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
-        df3 = ( self.force(z,waterp,Lv,v=self.v+5.e-5)
-                    - self.force(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
+        df1 = ( self.compute_force(z+5.e-2,waterp,Lv)
+                    - self.compute_force(z-5.e-2,waterp,Lv) ) /1.e-1
+        df2 = ( self.compute_force(z,waterp,Lv,w=self.w+5.e-3)
+                    - self.compute_force(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
+        df3 = ( self.compute_force(z,waterp,Lv,v=self.v+5.e-5)
+                    - self.compute_force(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
         return df1, df2, df3
 
     def compute_bounds(self,waterp,zmin,zmax=0.):
@@ -211,14 +211,14 @@ class autonomous_float():
             v=self.piston.vol_max
         else:
             v=None
-        fmax=self.force(z,waterp,self.L,v=v,w=0.) # upward force
+        fmax=self.compute_force(z,waterp,self.L,v=v,w=0.) # upward force
         #
         z=zmin
         if hasattr(self,'piston'):
             v=self.piston.vol_min
         else:
             v=None
-        fmin=self.force(z,waterp,self.L,v=v,w=0.) # downward force
+        fmin=self.compute_force(z,waterp,self.L,v=v,w=0.) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
         wmax = np.sqrt( afmax * self.m*2*self.L / self.c1)
@@ -422,7 +422,7 @@ class autonomous_float():
             #
             # get vertical force on float
             waterp.update_eta(eta, t) # update isopycnal displacement
-            _force = self.force(self.z, waterp, self.Lv)
+            _force = self.compute_force(self.z, waterp, self.Lv)
             #
             # update kalman state estimation
             if kalman and t_modulo_dt(t, self.kalman.dt, dt_step):

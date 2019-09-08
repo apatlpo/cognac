@@ -1,6 +1,7 @@
 import numpy as np
-from scipy.interpolate import interp1d
+import xarray as xr
 from netCDF4 import Dataset
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import gsw
@@ -98,24 +99,30 @@ class waterp():
         if name is None:
             self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
 
-
-    def show_on_map(self):
+    def show_on_map(self,zdiff=None):
         if self._woa:
-            nc = Dataset(self._tfile,'r')
-            glon = nc.variables['lon'][:]
-            glat = nc.variables['lat'][:]
-            temps = nc.variables['t_an'][0,0,:,:]
-            nc.close()
+            ds = xr.open_dataset(self._tfile, decode_times=False).squeeze()
+            #
+            if zdiff is not None:
+                toplt = ds['t_an'].sel(depth=zdiff[0]) \
+                            - ds['t_an'].sel(depth=zdiff[1])
+                title = 't(%dm) - t(%dm) [degC]'%(zdiff[0],zdiff[1])
+            else:
+                toplt = ds['t_an'].sel(depth=zdiff[0])
+                title = 'sea surface temperature [degC]'
             #
             crs=ccrs.PlateCarree()
             plt.figure(figsize=(10, 5))
             ax = plt.axes(projection=crs)
-            hdl = ax.pcolormesh(glon,glat,temps,transform = crs,cmap=plt.get_cmap('CMRmap_r'))
-            ax.plot(self.lon,self.lat,'*',markersize=10,markerfacecolor='CadetBlue',markeredgecolor='w',transform=crs)
+            hdl = ax.pcolormesh(ds.lon, ds.lat, toplt, transform=crs,
+                                cmap=plt.get_cmap('CMRmap_r'))
+            ax.plot(self.lon,self.lat, '*', markersize=10,
+                    markerfacecolor='CadetBlue', markeredgecolor='w',
+                    transform=crs)
             ax.coastlines(resolution='110m')
             ax.gridlines()
-            plt.colorbar(hdl,ax=ax)
-            ax.set_title('sea surface temperature [degC]')
+            plt.colorbar(hdl, ax=ax)
+            ax.set_title(title)
             plt.show()
         else:
             print('No map to show')
