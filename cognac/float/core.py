@@ -175,21 +175,40 @@ class autonomous_float():
 
     def compute_force(self, z, waterp, Lv, v=None, w=None):
         ''' Compute the vertical force exterted on the float
+        We assume thermal equilibrium
+        Drag is quadratic
+
+        Parameters
+        ----------
+
+        z: float
+            Depth of the Float
+        waterp: water profile object
+            Water profile used to compute the upward buoyancy force and water
+            vertical flow
+        Lv: float
+            Length of the float used for drag
+        v: float
+            Piston volume
+        w: float
+            float vertical velocity (positive upward)
+
         '''
+        # gravity
+        f = -self.m*g
+        # upward buoyancy
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
         rhow = waterp.get_rho(z)
         rhof = self.rho(p=p,temp=tempw,v=v)
-        #
-        f = -self.m*g
-        f += self.m*rhow/rhof*g # we ignore DwDt terms for now
-        #
+        f += self.m*rhow/rhof*g
+        # drag
         if self.c0 != 0:
             print(' !!! linear drag coefficient not implemented yet')
             return None
-
         if w is None:
             w = self.w
-        f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt) #
+        f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt)
+        # we ignore DwDt terms for now
         return f
 
     def compute_dforce(self,z,waterp,Lv):
@@ -240,27 +259,13 @@ class autonomous_float():
         return fmax, fmin, afmax, wmax
 
     def init_kalman(self, kalman, w, z, gammaE, Ve, usepiston, t0, verbose):
-
-        dt = 1. #s
-        depth_rms = 1e-3 # m
-        vel_rms = depth_rms/dt # mm/s
-        t2V = self.piston.vol_error  #vol_error = 7.158577010132995e-08
-        gamma_alpha_gammaE = 1e-8
-        kalman_default = {'dt': dt, 'm': self.m, 'a': self.a,
-                          'rho': self.rho_cte,
-                          'c1': self.c1, 'L' : self.L,
-                          'vol_error': t2V,
-                          'gammaV' : self.gammaV,
-                          'gamma': np.diag([vel_rms**2, depth_rms**2,
-                                            gamma_alpha_gammaE**2, (10.*t2V)**2]),
-                          'gamma_alpha': np.diag([(10*vel_rms)**2, depth_rms**2,
-                                                  gamma_alpha_gammaE**2, (10.*t2V)**2] ),
-                          'gamma_beta': np.diag([depth_rms**2]),
-                          'verbose': verbose}
+        _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
+                   'c1':self.c1, 'Lv': self.L, 'gammaV': self.gammaV}
         if type(kalman) is dict:
-            kalman_default.update(kalman)
+            _params.update(kalman)
         x0 = [-w, -z, gammaE, Ve]
-        self.kalman = kalman_filter(x0, **kalman_default)
+        self.kalman = kalman_filter(x0, **_params)
+        # broadcast variables upward
         self.x_kalman = [self.kalman.x_hat]
         self.gamma_kalman =[np.diag(self.kalman.gamma)]
         self.t_kalman = [t0]

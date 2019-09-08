@@ -132,24 +132,59 @@ def control_kalman_feedback(depth_target, v, ctrl):
 
 class kalman_filter(object):
     ''' Kalman filter for float state estimation
+    State vector is:
+     [downward velocity, depth, equivalent compressibility, equivalent volume]
     '''
 
-    def __init__(self, x0, **params):
+    def __init__(self, x0, **params_in):
+        # default parameters
+        params = {'dt': 1., 'depth_rms': 1e-3, 'piston_volume_error': 7.e-8,
+                  'gamma_alpha_gammaE': 1e-8, 'verbose': 0}
+        # tests if mandatory parameters are here
+        for key in ['m', 'a','rho_cte','c1','Lv','gammaV']:
+            assert key in params_in
+        params.update(params_in)
+        # potentially derived parameters
+        if 'vel_rms' not in params:
+            params['vel_rms'] = params['depth_rms']/params['dt']
+        _perror = params['piston_volume_error']
+        if 'gamma' not in params:
+            params['gamma'] = np.diag([params['vel_rms']**2,
+                                       params['depth_rms']**2,
+                                       params['gamma_alpha_gammaE']**2,
+                                       (10.*_perror)**2])
+        if 'gamma_alpha' not in params:
+            params['gamma_alpha'] = np.diag([params['vel_rms']**2,
+                                        params['depth_rms']**2,
+                                        params['gamma_alpha_gammaE']**2,
+                                        (10.*_perror)**2] )
+        if 'gamma_beta' not in params:
+            params['gamma_beta'] = np.diag([params['depth_rms']**2])
+        # set parameters as attributes
         for key,val in params.items():
             setattr(self,key,val)
-        #
+        # state vector
         self.x_hat = np.array(x0)
-        #
-        self.A_coeff = g*self.rho/((self.a+1)*self.m)
-        self.B_coeff = self.c1/(2*self.L*(1+self.a))
-        self.A = self.dt * \
+        # coefficients
+        self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
+        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
+        # linearized dynamical operator
+        self.A = np.eye(4)
+        self.A += self.dt * \
                  np.array([[-self.B_coeff*abs(self.x_hat[0]), self.A_coeff*self.x_hat[2],
                             self.A_coeff*self.x_hat[1], -self.A_coeff],
                            [1., 0., 0, 0],
                            [0, 0, 0., 0],
                            [0, 0, 0, 0.]])
-        self.A += np.eye(4)
+        # observation operator
         self.C = np.array([[0, 1, 0, 0.]])
+
+    def __repr__(self):
+        strout='Kalman filter object: \n'
+        strout+='  dt     = %.2f s     - filter time step\n'%(self.dt)
+        strout+='  x_hat   = [%.2e,%.2e,%.2e,%.2e] - kalman state \n'%tuple(self.x_hat)
+        strout+=np.array2string(self.gamma, formatter={'float_kind':lambda x: "%.2e" % x})
+        return strout
 
     def gen_obs(self, z, scale = 1.0):
         # build observations
@@ -220,7 +255,7 @@ class kalman_filter(object):
         delta = ctrl['delta'] #length scale that defines the zone of influence around the target depth, assesed by simulation
 
         e = -depth_target - x[1]
-        y = x[0] - nu*atan(e/delta)
+        y = x[0] - nu*np.arctan(e/delta)
 
         dx1 = -self.A_coeff*(x[3] - x[2]*x[1] + v) \
               -self.B_coeff*x[0]*np.abs(x[0])
