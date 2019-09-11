@@ -29,6 +29,9 @@ class logger():
         else:
             return self._df['time']
 
+    def __repr__(self):
+        return str(self._df.head())
+
     def store(self, **kwargs):
         ''' Appends variables to the logger database:
         Usage:
@@ -127,14 +130,19 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
               %( nrg*86400, nrg*86400*30. ))
 
 def plot_kalman(log, f):
+    alpha = 0.7
     state, t = log['state'], log['state']['time']*s2m
     k, tk = log['kalman'], log['kalman']['time']*s2m
     #
     fig = plt.figure(figsize=(15,10))
     #
     ax=fig.add_subplot(231)
-    ax.plot(t, state['z'],'-', label = "real depth")
-    ax.plot(tk,-k['z_kalman'], label ="estimated depth")
+    #ax.plot(tk, - k['gamma_diag1'])
+    ax.fill_between(tk, -k['z_kalman'] - np.sqrt(k['gamma_diag0']),
+                        -k['z_kalman'] + np.sqrt(k['gamma_diag0']),
+                    facecolor='orange', alpha=alpha)
+    ax.plot(tk,-k['z_kalman'], color='r', label ="estimated depth")
+    ax.plot(t, state['z'], color='k', label = "real depth")
     ax.set_title("depth as a function of time")
     #ax.set_xlabel("t (min)")
     ax.set_ylabel("z (m)")
@@ -142,17 +150,23 @@ def plot_kalman(log, f):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(232)
-    ax.plot(t,state['w'], label = "real velocity")
-    ax.plot(tk,-k['w_kalman'], label ="estimated velocity")
+    ax.fill_between(tk, -k['w_kalman'] - np.sqrt(k['gamma_diag1']),
+                        -k['w_kalman'] + np.sqrt(k['gamma_diag1']),
+                    facecolor='orange', alpha=alpha)
+    ax.plot(tk,-k['w_kalman'], color='r', label ="estimated velocity")
+    ax.plot(t,state['w'], color='k', label = "real velocity")
     ax.set_title("velocity as a function of time")
     #ax.set_xlabel("t (min)")
     ax.set_ylabel("w (m/s)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
-    ax=fig.add_subplot(233)
-    ax.plot(tk,k['gammaV'], label = "float compressibility x float volume")
-    ax.plot(tk,k['gammaE_kalman'], label ="estimated equivalent compressibility")
+    ax=fig.add_subplot(235)
+    ax.fill_between(tk, k['gammaE_kalman'] - np.sqrt(k['gamma_diag2']),
+                        k['gammaE_kalman'] + np.sqrt(k['gamma_diag2']),
+                    facecolor='orange', alpha=alpha)
+    ax.plot(tk,k['gammaE_kalman'], color='r', label ="estimated equivalent compressibility")
+    ax.plot(tk,k['gammaV'], color='k', label = "float compressibility x float volume")
     ax.set_title("equivalent compressibility as a function of time")
     ax.set_xlabel("t (min)")
     ax.set_ylabel("gammaE (m^2)")
@@ -160,17 +174,20 @@ def plot_kalman(log, f):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(234)
-    ax.plot(tk,k['Ve']*1e6, label = "real Ve volume")
-    ax.plot(tk,k['Ve_kalman']*1e6, label ="estimated Ve volume")
+    ax.fill_between(tk, (k['Ve_kalman'] - np.sqrt(k['gamma_diag3']))*1e6,
+                        (k['Ve_kalman'] + np.sqrt(k['gamma_diag3']))*1e6,
+                    facecolor='orange', alpha=alpha)
+    ax.plot(tk,k['Ve_kalman']*1e6, color='r', label ="estimated Ve volume")
+    ax.plot(tk,k['Ve']*1e6, color='k', label = "real Ve volume")
     ax.set_title("volume Ve as a function of time")
     ax.set_xlabel("t (min)")
     ax.set_ylabel("Ve (cm^3)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
-    ax=fig.add_subplot(235)
-    ax.plot(t,state['dwdt'], label = "real acceleration")
-    ax.plot(tk,-k['dwdt_kalman'], label ="estimated acceleration")
+    ax=fig.add_subplot(233)
+    ax.plot(t,state['dwdt'], color='k', label = "real acceleration")
+    ax.plot(tk,-k['dwdt_kalman'], color='r', label ="estimated acceleration")
     ax.set_title("acceleration dw/dt as a function of time")
     ax.set_xlabel("t (min)")
     ax.set_ylabel("dw/dt (m.s^-2)")

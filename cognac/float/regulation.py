@@ -40,7 +40,7 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
         ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
         #f2 = f.compute_force(z, ctrl['waterp'], ctrl['L'])/f.m
         u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
-                             ctrl['m'], ctrl['rho'], ctrl['a'], ctrl['waterp'],
+                             ctrl['m'], ctrl['rho_cte'], ctrl['a'], ctrl['waterp'],
                              ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
 
     elif ctrl['mode'] == 'kalman_feedback':
@@ -143,21 +143,27 @@ class kalman_filter(object):
         # tests if mandatory parameters are here
         for key in ['m', 'a','rho_cte','c1','Lv','gammaV']:
             assert key in params_in
+        #
         params.update(params_in)
-        # potentially derived parameters
+        # derived parameters
+        _dt = params['dt']
         if 'vel_rms' not in params:
-            params['vel_rms'] = params['depth_rms']/params['dt']
+            params['vel_rms'] = params['depth_rms']/_dt
         _perror = params['piston_volume_error']
-        if 'gamma' not in params:
+        if 'gamma' in params:
+            params['gamma'] = np.diag(params['gamma'])
+        else:
             params['gamma'] = np.diag([params['vel_rms']**2,
                                        params['depth_rms']**2,
                                        params['gamma_alpha_gammaE']**2,
                                        (10.*_perror)**2])
-        if 'gamma_alpha' not in params:
+        if 'gamma_alpha' in params:
+            params['gamma_alpha'] = np.diag(params['gamma_alpha'])
+        else:
             params['gamma_alpha'] = np.diag([params['vel_rms']**2,
                                         params['depth_rms']**2,
                                         params['gamma_alpha_gammaE']**2,
-                                        (10.*_perror)**2] )
+                                        _perror**2])
         if 'gamma_beta' not in params:
             params['gamma_beta'] = np.diag([params['depth_rms']**2])
         # set parameters as attributes
@@ -171,7 +177,8 @@ class kalman_filter(object):
         # linearized dynamical operator
         self.A = np.eye(4)
         self.A += self.dt * \
-                 np.array([[-self.B_coeff*abs(self.x_hat[0]), self.A_coeff*self.x_hat[2],
+                 np.array([[-self.B_coeff*abs(self.x_hat[0]),
+                            self.A_coeff*self.x_hat[2],
                             self.A_coeff*self.x_hat[1], -self.A_coeff],
                            [1., 0., 0, 0],
                            [0, 0, 0., 0],

@@ -107,6 +107,7 @@ class waterp():
                 toplt = ds['t_an'].sel(depth=zdiff[0]) \
                             - ds['t_an'].sel(depth=zdiff[1])
                 title = 't(%dm) - t(%dm) [degC]'%(zdiff[0],zdiff[1])
+                print('t(0m) - t(500m) global maximum = %.1f degC'%toplt.max())
             else:
                 toplt = ds['t_an'].sel(depth=zdiff[0])
                 title = 'sea surface temperature [degC]'

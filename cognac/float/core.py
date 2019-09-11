@@ -173,7 +173,7 @@ class autonomous_float():
         print('Piston reset for equilibrium : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
 
-    def compute_force(self, z, waterp, Lv, v=None, w=None):
+    def compute_force(self, z, w, waterp, Lv, v=None):
         ''' Compute the vertical force exterted on the float
         We assume thermal equilibrium
         Drag is quadratic
@@ -205,21 +205,19 @@ class autonomous_float():
         if self.c0 != 0:
             print(' !!! linear drag coefficient not implemented yet')
             return None
-        if w is None:
-            w = self.w
         f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt)
         # we ignore DwDt terms for now
         return f
 
-    def compute_dforce(self,z,waterp,Lv):
+    def compute_dforce(self, z, w, waterp, Lv):
         ''' Compute gradients of the vertical force exterted on the float
         '''
-        df1 = ( self.compute_force(z+5.e-2,waterp,Lv)
-                    - self.compute_force(z-5.e-2,waterp,Lv) ) /1.e-1
-        df2 = ( self.compute_force(z,waterp,Lv,w=self.w+5.e-3)
-                    - self.compute_force(z,waterp,Lv,w=self.w-5.e-3) ) /1.e-2
-        df3 = ( self.compute_force(z,waterp,Lv,v=self.v+5.e-5)
-                    - self.compute_force(z,waterp,Lv,v=self.v-5.e-5) ) /1.e-4
+        df1 = ( self.compute_force(z+5.e-2, w, waterp, Lv, v=self.v)
+                    - self.compute_force(z-5.e-2,0.,waterp,Lv, v=self.v) ) /1.e-1
+        df2 = ( self.compute_force(z, w+5.e-3, waterp, Lv, v=self.v)
+                    - self.compute_force(z, w-5.e-3, waterp, Lv, v=self.v) ) /1.e-2
+        df3 = ( self.compute_force(z, w, waterp, Lv, v=self.v+5.e-5)
+                    - self.compute_force(z, w, waterp, Lv, v=self.v-5.e-5) ) /1.e-4
         return df1, df2, df3
 
     def compute_bounds(self,waterp,zmin,zmax=0.):
@@ -230,14 +228,14 @@ class autonomous_float():
             v=self.piston.vol_max
         else:
             v=None
-        fmax=self.compute_force(z,waterp,self.L,v=v,w=0.) # upward force
+        fmax=self.compute_force(z, 0., waterp, self.L, v=v) # upward force
         #
         z=zmin
         if hasattr(self,'piston'):
             v=self.piston.vol_min
         else:
             v=None
-        fmin=self.compute_force(z,waterp,self.L,v=v,w=0.) # downward force
+        fmin=self.compute_force(z, 0., waterp, self.L, v=v) # downward force
         #
         afmax = np.amax((np.abs(fmax),np.abs(fmin)))
         wmax = np.sqrt( afmax * self.m*2*self.L / self.c1)
@@ -258,17 +256,14 @@ class autonomous_float():
 
         return fmax, fmin, afmax, wmax
 
-    def init_kalman(self, kalman, w, z, gammaE, Ve, usepiston, t0, verbose):
+    def init_kalman(self, kalman, w, z, gammaE, Ve, verbose):
         _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
-                   'c1':self.c1, 'Lv': self.L, 'gammaV': self.gammaV}
+                   'c1':self.c1, 'Lv': self.L, 'gammaV': self.gammaV,
+                   'verbose': verbose}
         if type(kalman) is dict:
             _params.update(kalman)
-        x0 = [-w, -z, gammaE, Ve]
-        self.kalman = kalman_filter(x0, **_params)
-        # broadcast variables upward
-        self.x_kalman = [self.kalman.x_hat]
-        self.gamma_kalman =[np.diag(self.kalman.gamma)]
-        self.t_kalman = [t0]
+        _x0 = [-w, -z, gammaE, Ve]
+        self.kalman = kalman_filter(_x0, **_params)
 
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, Ve=None, t0=0., Lv=None,
@@ -355,12 +350,11 @@ class autonomous_float():
             gammaE = self.gammaV
         #kalman initialisation
         if kalman:
-            self.init_kalman(kalman, w, z, gammaE, Ve,
-                             piston, t0, verbose)
+            self.init_kalman(kalman, w, z, gammaE, Ve, verbose)
             _log['kalman'] = ['Ve', 'gammaV',
-                              'z_kalman','w_kalman', 'v_kalman', 'Ve_kalman',
-                              'gamma_diag1','gamma_diag2','gamma_diag3','gamma_diag4',
-                              'dwdt_kalman', 'gammaE_kalman']
+                              'z_kalman','w_kalman', 'Ve_kalman',
+                              'dwdt_kalman', 'gammaE'] + \
+                              ['gamma_diag%d'%i for i in range(4)]
         #
         if piston:
             if v is not None:
@@ -372,30 +366,25 @@ class autonomous_float():
                 ctrl_default={'dt_ctrl': dt_step, 'dz_nochattering': 0.}
                 if ctrl['mode'] == 'sliding':
                     ctrl_default = {'tau': 60., 'mode': 'sliding',
-                                    'waterp': waterp, 'Lv': self.L, } #,
-                    #                'f': self}
+                                    'waterp': waterp, 'Lv': self.L, }
                 elif ctrl['mode'] == 'pid':
-                    ctrl_default['error'] = 0.
-                    ctrl_default['integral'] = 0.
-                #
+                    ctrl_default = {'error':0.,'integral': 0.}
                 elif ctrl['mode'] == 'feedback':
-                    ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl_default['nu'] = 0.03*2./np.pi # Set the limit speed : 3cm/s assesed by simulation
-                    ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
-                    ctrl_default['gamma'] = self.gamma #mechanical compressibility [1/dbar]
-                    ctrl_default['L'] = self.L
-                    ctrl_default['c1'] = self.c1
-                    ctrl_default['m'] = self.m
-                    ctrl_default['gammaV'] = self.gammaV
-                    ctrl_default['rho'] = self.rho_cte
-                    ctrl_default['a'] = self.a
-                    ctrl_default['waterp'] = waterp
+                    ctrl_default = {'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                    'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
+                                    'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                    'gamma': self.gamma, #mechanical compressibility [1/dbar]
+                                    'L': self.L, 'c1': self.c1,'m': self.m,
+                                    'gammaV': self.gammaV,
+                                    'rho_cte': self.rho_cte,
+                                    'a': self.a,
+                                    'waterp': waterp}
                 #
                 elif ctrl['mode'] == 'kalman_feedback':
-                    ctrl_default['tau'] = 3.25  # Set the root of feed-back regulation # s assesed by simulation
-                    ctrl_default['nu'] = 0.03*2./np.pi # Set the limit speed, 3cm/s assesed by simulation
-                    ctrl_default['delta'] = 0.11 #length scale that defines the zone of influence around the target depth, assesed by simulation
-                    ctrl_default['kalman'] = self.kalman
+                    ctrl_default= {'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                   'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
+                                   'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                   'kalman': self.kalman}
                 #
                 #print(ctrl_default)
                 ctrl_default.update(ctrl)
@@ -427,7 +416,8 @@ class autonomous_float():
             #
             # get vertical force on float
             waterp.update_eta(eta, t) # update isopycnal displacement
-            _force = self.compute_force(self.z, waterp, self.Lv)
+            _force = self.compute_force(self.z, self.w, waterp,
+                                        self.Lv, v=self.v)
             #
             # update kalman state estimation
             if kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
@@ -466,13 +456,15 @@ class autonomous_float():
                     # Ve, gammae
                     _Ve = _force/(g*self.rho_cte) - self.gammaV * self.z - self.v
                     #_gammae =
-                    self.log['kalman'].store(time=t, z_kalman=_k.x_hat[1],
-                               w_kalman=_k.x_hat[0],gammaE_kalman=_k.x_hat[2],
-                               Ve_kalman=_k.x_hat[3], gamma_diag1=_k.gamma[0,0],
-                               gamma_diag2=_k.gamma[1,1],gamma_diag3=_k.gamma[2,2],
-                               gamma_diag4=_k.gamma[3,3], dwdt_kalman = -_k.A_coeff*\
-                               (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
-                               -_k.B_coeff*abs(_k.x_hat[0])*_k.x_hat[0],
+                    _dwdt = -_k.A_coeff* \
+                        (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
+                        -_k.B_coeff*abs(_k.x_hat[0])*_k.x_hat[0]
+                    []
+                    self.log['kalman'].store(time=t,
+                               z_kalman=_k.x_hat[1], w_kalman=_k.x_hat[0],
+                               gammaE_kalman=_k.x_hat[2], Ve_kalman=_k.x_hat[3],
+                               **{'gamma_diag%d'%i: _k.gamma[i,i] for i in range(4)},
+                               dwdt_kalman = _dwdt,
                                Ve=_Ve, gammaV=self.gammaV)
 
             # update variables
