@@ -68,7 +68,7 @@ class autonomous_float():
         strout+='  r     = %.2f m      - float radius\n'%(self.r)
         strout+='  m     = %.2f kg     - float mass\n'%(self.m)
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
-        strout+='  rho_cte = m/V = %.2e kg.cm^3   - float baseline density\n'%(self.m/self.V*1.e6)
+        strout+='  rho_cte = m/V = %.2e kg.cm^3   - float baseline density\n'%(self.rho_cte*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
@@ -139,6 +139,7 @@ class autonomous_float():
         m0 = self.m
         self.m = fsolve(_f,self.m)[0]
         self.m += offset*1e-3
+        self.rho_cte= self.m / self.V #kg.m^-3
         print('%.1f g '%((self.m-m0)*1.e3+offset) + \
               ' were added to the float in order to be at equilibrium' + \
               ' at %.0f dbar \n'%(p_eq))
@@ -363,30 +364,28 @@ class autonomous_float():
             self.piston_work = 0.
             u = 0.
             if ctrl:
-                ctrl_default={'dt_ctrl': dt_step, 'dz_nochattering': 0.}
+                ctrl_default = {'dt': dt_step, 'dz_nochattering': 0.}
                 if ctrl['mode'] == 'sliding':
-                    ctrl_default = {'tau': 60., 'mode': 'sliding',
-                                    'waterp': waterp, 'Lv': self.L, }
+                    ctrl_default.update({'tau': 60., 'mode': 'sliding',
+                                         'waterp': waterp, 'Lv': self.L, })
                 elif ctrl['mode'] == 'pid':
-                    ctrl_default = {'error':0.,'integral': 0.}
+                    ctrl_default.update({'error':0.,'integral': 0.})
                 elif ctrl['mode'] == 'feedback':
-                    ctrl_default = {'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
-                                    'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
-                                    'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
-                                    'gamma': self.gamma, #mechanical compressibility [1/dbar]
-                                    'L': self.L, 'c1': self.c1,'m': self.m,
-                                    'gammaV': self.gammaV,
-                                    'rho_cte': self.rho_cte,
-                                    'a': self.a,
-                                    'waterp': waterp}
-                #
+                    ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                         'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
+                                         'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                         'gamma': self.gamma, #mechanical compressibility [1/dbar]
+                                         'L': self.L, 'c1': self.c1,'m': self.m,
+                                         'gammaV': self.gammaV,
+                                         'rho_cte': self.rho_cte,
+                                         'a': self.a,
+                                         'waterp': waterp})
                 elif ctrl['mode'] == 'kalman_feedback':
-                    ctrl_default= {'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
-                                   'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
-                                   'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
-                                   'kalman': self.kalman}
+                    ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                         'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
+                                         'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                         'kalman': self.kalman})
                 #
-                #print(ctrl_default)
                 ctrl_default.update(ctrl)
                 ctrl = ctrl_default
                 self.ctrl = ctrl
@@ -424,22 +423,25 @@ class autonomous_float():
                 self.kalman.update_kalman(u, self.v, self.z)
             #
             # control starts here
-            if piston and ctrl and t_modulo_dt(t, ctrl['dt_ctrl'], dt_step):
+            if piston and ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
-                if np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']:
+                if (np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']) \
+                    and t_modulo_dt(t, ctrl['dt'], dt_step):
                     if verbose>0:
                         print('[-w, -z, -dwdt, gammaV, Ve]',
                               [-self.w, -self.z, -self.dwdt, self.gammaV,
                                self.Ve])
                     u = control(self.z, z_target, ctrl, t=t, w=self.w,
-                                dwdt=self.dwdt, v=self.v) #, f=ctrl['f'])
-                    #
-                    v0 = self.piston.vol
-                    self.piston.update(dt_step, u)
-                    self.v = self.piston.vol
+                                dwdt=self.dwdt, v=self.v)
+                else:
+                    u = 0.
+                #
+                _v0 = self.piston.vol
+                self.piston.update(dt_step, u)
+                self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
-                if self.v != v0:
+                if self.v != _v0:
                     self.piston_work += dt_step \
                                 * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
                                 * watth /self.piston.efficiency

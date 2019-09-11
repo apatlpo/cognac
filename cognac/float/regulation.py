@@ -13,7 +13,6 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
     d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
     #
     if ctrl['mode'] == 'sliding':
-        # add tests: if w is None, if f is None ...
         #x1=self.z
         x2 = w
         #x3=self.V+self.v
@@ -30,8 +29,8 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
 
     elif ctrl['mode'] == 'pid':
         error = z_t - z
-        ctrl['integral'] += error*ctrl['dt_ctrl']
-        ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt_ctrl']
+        ctrl['integral'] += error*ctrl['dt']
+        ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt']
         ctrl['error'] = error
         u = ctrl['Kp']*ctrl['error'] + ctrl['Ki']*ctrl['integral'] + ctrl['Kd']*ctrl['derivative']
 
@@ -138,9 +137,10 @@ class kalman_filter(object):
 
     def __init__(self, x0, **params_in):
         # default parameters
-        params = {'dt': 1., 'depth_rms': 1e-3, 'piston_volume_error': 7.e-8,
-                  'gamma_alpha_gammaE': 1e-8, 'verbose': 0}
-        # tests if mandatory parameters are here
+        params = {'dt': 1., 'depth_rms': 1e-3, 'verbose': 0}
+        #          'piston_volume_error': 7.e-8,'gamma_alpha_gammaE': 1e-8,
+        #          'verbose': 0}
+        # check if mandatory parameters are here, bad form ...
         for key in ['m', 'a','rho_cte','c1','Lv','gammaV']:
             assert key in params_in
         #
@@ -149,21 +149,28 @@ class kalman_filter(object):
         _dt = params['dt']
         if 'vel_rms' not in params:
             params['vel_rms'] = params['depth_rms']/_dt
-        _perror = params['piston_volume_error']
+        #
+        # initial state covariance
         if 'gamma' in params:
             params['gamma'] = np.diag(params['gamma'])
         else:
+            # old and should probably not be used
             params['gamma'] = np.diag([params['vel_rms']**2,
                                        params['depth_rms']**2,
                                        params['gamma_alpha_gammaE']**2,
-                                       (10.*_perror)**2])
-        if 'gamma_alpha' in params:
+                                       params['piston_volume_error']**2])
+        # dynamical noise covariance
+        if 'gamma_alpha_scaled' in params:
+            params['gamma_alpha'] = _dt**2 * np.diag(params['gamma_alpha_scaled'])
+        elif 'gamma_alpha' in params:
             params['gamma_alpha'] = np.diag(params['gamma_alpha'])
         else:
+            # old and should probably not be used
             params['gamma_alpha'] = np.diag([params['vel_rms']**2,
                                         params['depth_rms']**2,
                                         params['gamma_alpha_gammaE']**2,
-                                        _perror**2])
+                                        params['piston_volume_error']**2])
+        # observation noise covariance
         if 'gamma_beta' not in params:
             params['gamma_beta'] = np.diag([params['depth_rms']**2])
         # set parameters as attributes
@@ -206,10 +213,10 @@ class kalman_filter(object):
         self.A[0,2] = 1 + self.dt*self.A_coeff*self.x_hat[1]
         y = self.gen_obs(z)
         if self.verbose>0:
-            print("x0 initial", self.x_hat)
+            print("x kalman", self.x_hat)
         (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, u, v, y,
                                               self.A)
-        if self.verbose>0:
+        if self.verbose>1:
             print("x0 iteration", self.x_hat)
             print('x_hat', self.x_hat)
             print('u', u)
@@ -229,8 +236,6 @@ class kalman_filter(object):
 
     def kalman_correc(self,x0,gamma0,y):
         C = self.C
-        if self.verbose>0:
-            print(C.shape, self.gamma_beta.shape, gamma0.shape)
         S = C @ gamma0 @ C.T + self.gamma_beta
         K = gamma0 @ C.T @ np.linalg.inv(S)
         ytilde = np.array(y) - C @ x0
@@ -241,7 +246,7 @@ class kalman_filter(object):
         self.K = K
         self.ytilde = ytilde
         #
-        if self.verbose>0:
+        if self.verbose>1:
             print('K', K)
             print('ytilde', ytilde)
         return xup, Gup
