@@ -257,20 +257,21 @@ class autonomous_float():
 
         return fmax, fmin, afmax, wmax
 
-    def init_kalman(self, kalman, w, z, gammaE, Ve, verbose):
+    def init_kalman(self, kalman, w, z, gamma_e, V_e, verbose):
         _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
                    'c1':self.c1, 'Lv': self.L, 'gammaV': self.gammaV,
                    'verbose': verbose}
         if type(kalman) is dict:
             _params.update(kalman)
-        _x0 = [-w, -z, gammaE, Ve]
+        _x0 = [-w, -z, gamma_e, V_e]
         self.kalman = kalman_filter(_x0, **_params)
 
     def time_step(self, waterp, T=600., dt_step=1.,
-                  z=None, w=None, v=None, Ve=None, t0=0., Lv=None,
-                  piston=False, z_target=None, gammaE=None,
+                  z=None, w=None, v=None, t0=0., Lv=None,
+                  piston=False, z_target=None,
                   ctrl=None,
                   kalman=None,
+                  gamma_e=None, V_e=None,
                   eta=lambda t: 0.,
                   log=True,
                   dt_log=10.,
@@ -294,8 +295,8 @@ class autonomous_float():
             Initial vertical velocity, negative for downward motions [m.s^-1]
         v: float
             Initial volume adjustement (total volume is V+v) [m^3]
-        Ve: float
-            Volume offset (total volume is Ve+v) [m^3]
+        V_e: float
+            Volume offset (total volume is V_e+v) [m^3]
         t0: float
             Initial time [t]
         Lv: float
@@ -329,12 +330,12 @@ class autonomous_float():
         self.z = z
 
         #
-        if Ve is None:
-            if not hasattr(self,'Ve'):
-                Ve=0.
+        if V_e is None:
+            if not hasattr(self,'V_e'):
+                V_e=0.
             else:
-                Ve=self.Ve
-        self.Ve = Ve
+                V_e=self.V_e
+        self.V_e = V_e
 
         #
         if w is None:
@@ -347,14 +348,14 @@ class autonomous_float():
         #
         _log = {'state':['z','w','v','dwdt']}
         #
-        if gammaE is None:
-            gammaE = self.gammaV
+        if gamma_e is None:
+            gamma_e = self.gammaV
         #kalman initialisation
         if kalman:
-            self.init_kalman(kalman, w, z, gammaE, Ve, verbose)
-            _log['kalman'] = ['Ve', 'gammaV',
-                              'z_kalman','w_kalman', 'Ve_kalman',
-                              'dwdt_kalman', 'gammaE'] + \
+            self.init_kalman(kalman, w, z, gamma_e, V_e, verbose)
+            _log['kalman'] = ['V_e', 'gammaV',
+                              'z_kalman','w_kalman', 'V_e_kalman',
+                              'dwdt_kalman', 'gamma_e'] + \
                               ['gamma_diag%d'%i for i in range(4)]
         #
         if piston:
@@ -429,9 +430,9 @@ class autonomous_float():
                 if (np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']) \
                     and t_modulo_dt(t, ctrl['dt'], dt_step):
                     if verbose>0:
-                        print('[-w, -z, -dwdt, gammaV, Ve]',
+                        print('[-w, -z, -dwdt, gammaV, V_e]',
                               [-self.w, -self.z, -self.dwdt, self.gammaV,
-                               self.Ve])
+                               self.V_e])
                     u = control(self.z, z_target, ctrl, t=t, w=self.w,
                                 dwdt=self.dwdt, v=self.v)
                 else:
@@ -455,8 +456,8 @@ class autonomous_float():
                     self.log['piston'].store(**_info)
                 if kalman:
                     _k = self.kalman
-                    # Ve, gammae
-                    _Ve = _force/(g*self.rho_cte) - self.gammaV * self.z - self.v
+                    # V_e, gammae
+                    _V_e = _force/(g*self.rho_cte) - self.gammaV * self.z - self.v
                     #_gammae =
                     _dwdt = -_k.A_coeff* \
                         (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
@@ -464,10 +465,10 @@ class autonomous_float():
                     []
                     self.log['kalman'].store(time=t,
                                z_kalman=_k.x_hat[1], w_kalman=_k.x_hat[0],
-                               gammaE_kalman=_k.x_hat[2], Ve_kalman=_k.x_hat[3],
+                               gamma_e_kalman=_k.x_hat[2], V_e_kalman=_k.x_hat[3],
                                **{'gamma_diag%d'%i: _k.gamma[i,i] for i in range(4)},
                                dwdt_kalman = _dwdt,
-                               Ve=_Ve, gammaV=self.gammaV)
+                               V_e=_V_e, gammaV=self.gammaV)
 
             # update variables
             self.z += dt_step*self.w

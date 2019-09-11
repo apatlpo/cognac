@@ -129,7 +129,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day'
               %( nrg*86400, nrg*86400*30. ))
 
-def plot_kalman(log, f):
+def plot_kalman(log, f, V_e=None, gamma_e=None):
     alpha = 0.7
     state, t = log['state'], log['state']['time']*s2m
     k, tk = log['kalman'], log['kalman']['time']*s2m
@@ -162,26 +162,32 @@ def plot_kalman(log, f):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(235)
-    ax.fill_between(tk, k['gammaE_kalman'] - np.sqrt(k['gamma_diag2']),
-                        k['gammaE_kalman'] + np.sqrt(k['gamma_diag2']),
+    ax.fill_between(tk, k['gamma_e_kalman'] - np.sqrt(k['gamma_diag2']),
+                        k['gamma_e_kalman'] + np.sqrt(k['gamma_diag2']),
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,k['gammaE_kalman'], color='r', label ="estimated equivalent compressibility")
-    ax.plot(tk,k['gammaV'], color='k', label = "float compressibility x float volume")
+    ax.plot(tk,k['gamma_e_kalman'], color='r', label ="estimated equivalent compressibility")
+    if gamma_e is not None:
+        ax.axhline(gamma_e,color='k')
+    else:
+        ax.plot(tk,k['gammaV'], color='k', label = "float compressibility x float volume")
     ax.set_title("equivalent compressibility as a function of time")
     ax.set_xlabel("t (min)")
-    ax.set_ylabel("gammaE (m^2)")
+    ax.set_ylabel("gamma_e (m^2)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(234)
-    ax.fill_between(tk, (k['Ve_kalman'] - np.sqrt(k['gamma_diag3']))*1e6,
-                        (k['Ve_kalman'] + np.sqrt(k['gamma_diag3']))*1e6,
+    ax.fill_between(tk, (k['V_e_kalman'] - np.sqrt(k['gamma_diag3']))*1e6,
+                        (k['V_e_kalman'] + np.sqrt(k['gamma_diag3']))*1e6,
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,k['Ve_kalman']*1e6, color='r', label ="estimated Ve volume")
-    ax.plot(tk,k['Ve']*1e6, color='k', label = "real Ve volume")
-    ax.set_title("volume Ve as a function of time")
+    ax.plot(tk,k['V_e_kalman']*1e6, color='r', label ="estimated V_e volume")
+    if V_e is not None:
+        ax.axhline(V_e*1e6, color='k')
+    else:
+        ax.plot(tk,k['V_e']*1e6, color='k', label = "real V_e volume")
+    ax.set_title("volume V_e as a function of time")
     ax.set_xlabel("t (min)")
-    ax.set_ylabel("Ve (cm^3)")
+    ax.set_ylabel("V_e (cm^3)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
