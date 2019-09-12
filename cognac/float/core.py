@@ -41,11 +41,13 @@ class autonomous_float():
             self.model = kwargs['model']
         #
         if self.model.lower() == 'ifremer':
-            params = {'r': 0.07, 'L': 0.8278, 'gamma': 3.78039e-06, 'alpha': 0.,
+            params = {'r': 0.07, 'L': 0.8278,
+                      'gamma': 3.78039e-06, 'alpha': 6.98e-5,
                       'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
             params['m'] = 11.630
         elif self.model.lower() == 'ensta':
-            params = {'r': 0.06, 'L': 0.5, 'gamma': 9.30e-5, 'alpha': 0.,
+            params = {'r': 0.06, 'L': 0.5,
+                      'gamma': 9.30e-5, 'alpha': 0.,
                       'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
             params['m'] = 9.045
         # avec 16 piles : 11.630, avec 32 piles : 13.315
