@@ -46,3 +46,6 @@ float/082905_20190416_1443_data.txt
 
 # logins
 *.login
+
+# dask
+dask-worker-space

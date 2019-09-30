@@ -464,7 +464,7 @@ class autonomous_float():
                     _dwdt = -_k.A_coeff* \
                         (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
                         -_k.B_coeff*abs(_k.x_hat[0])*_k.x_hat[0]
-                    []
+                    #
                     self.log['kalman'].store(time=t,
                                z_kalman=_k.x_hat[1], w_kalman=_k.x_hat[0],
                                gamma_e_kalman=_k.x_hat[2], V_e_kalman=_k.x_hat[3],
