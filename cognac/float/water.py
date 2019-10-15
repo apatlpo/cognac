@@ -50,6 +50,19 @@ class waterp():
                        name):
         self._pts=True
         #
+        if all([isinstance(i, float)
+                for i in [pressure, temperature, salinity, lon, lat]]):
+            #pressure = np.array([-1, 1e4])
+            #temperature = np.array([temperature, temperature])
+            #salinity = np.array([salinity, salinity])
+            #lon = np.array([lon,lon])
+            #lat = np.array([lat,lat])
+            pressure = [-1, 1e4]
+            temperature = [temperature, temperature]
+            salinity = [salinity, salinity]
+            lon = [lon,lon]
+            lat = [lat,lat]
+        #
         self.lon, self.lat = lon, lat
         #
         self.p = pressure
@@ -188,6 +201,20 @@ class waterp():
         SA = interp(self.z, self.SA, z-self.eta)
         CT = interp(self.z, self.CT, z-self.eta)
         return gsw.density.kappa(SA, CT, p)*1e4
+
+    def get_alpha(self, z):
+        ' returns thermal expansion in 1/degC'
+        p = self.get_p(z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.density.alpha(SA, CT, p)
+
+    def get_beta(self, z):
+        ' returns thermal expansion in kg/g'
+        p = self.get_p(z)
+        SA = interp(self.z, self.SA, z-self.eta)
+        CT = interp(self.z, self.CT, z-self.eta)
+        return gsw.density.beta(SA, CT, p)
 
     def update_eta(self, eta, t):
         ''' Update isopycnal diplacement and water velocity given a function

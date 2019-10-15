@@ -5,6 +5,10 @@ from scipy.interpolate import interp1d
 from scipy.optimize import fsolve, brentq
 import matplotlib.pyplot as plt
 
+import yaml
+from pprint import pformat
+import gsw
+
 from .log import *
 from .regulation import control, kalman_filter
 
@@ -708,6 +712,114 @@ class piston():
     def _checkbounds(self):
         self.phi = np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
 
+# ----------------------------- balast -----------------------------------------
+
+_bvariables = ['mass_in_water', 'mass_in_air',
+               'water_temperature', 'water_salinity',
+               'piston_displacement']
+
+class balast(object):
+
+    # in db
+    pressure = 1.
+    # brest:
+    lon, lat = 4.5, 38.5
+
+    def __init__(self, file=None):
+        ''' Class handling the balasting procedure
+        '''
+        self._d = {}
+        if file is not None:
+            self.load(file)
+
+    def __repr__(self):
+        return pformat(self._d, indent=2, width=1)
+
+    def add_balast(self, name, comments='None', **kwargs):
+        ''' Add a mass measurement
+
+        Parameters
+        ----------
+        name: str
+            Name of the measurement with for example date, location
+        mass_in_water: float
+            in grammes
+        mass_in_air: float
+            in grammes
+        water_temperature: float
+            in degC
+        water_salinity: float
+            in psu
+        piston_displacement: float
+            in cm
+        comments: str
+            additional comments
+        '''
+        if not all(v in kwargs for v in _bvariables):
+            print('All following variables should be passed as kwargs:')
+            print(_variables)
+            print('Abort')
+            return
+        self._d[name] = {v: kwargs[v] for v in _bvariables}
+        _d = self._d[name]
+        # derive absolute salinity and conservative temperature
+        SA = gsw.SA_from_SP(kwargs['water_salinity'],
+                                 self.pressure, self.lon, self.lat)
+        CT = gsw.CT_from_t(SA, kwargs['water_temperature'], self.pressure)
+        rho_water = gsw.density.rho(SA, CT, self.pressure) # in situ density
+        # store derived variables
+        _d['SA'] = SA
+        _d['CT'] = CT
+        _d['rho_water'] = rho_water
+        _d['V'] = _d['mass_in_air']/1e3/rho_water
+        _d['comments'] = comments
+
+    def compute_mass_adjustment(self, f, w=None, **kwargs):
+        """
+        \delta_m = V \delta \rho_w + \rho_w \delta V
+        """
+        if w is not None:
+            z = -self.pressure
+            water_temperature = w.get_temp(z)
+            water_salinity = w.get_s(z)
+            lon, lat = w.lon, w.lat
+        else:
+            water_temperature = kwargs['temperature']
+            water_salinity = kwargs['salinity']
+            lon, lat = kwargs['lon'], kwargs['lat']
+        SA = gsw.SA_from_SP(water_salinity, self.pressure, lon, lat)
+        CT = gsw.CT_from_t(SA, water_temperature, self.pressure)
+        rho_water = gsw.density.rho(SA, CT, self.pressure) # new in situ density
+        for name, b in self._d.items():
+            delta_rho_water = rho_water - b['rho_water']
+            #
+            f.m = b['mass_in_air']*1e-3  # need to convert to kg
+            f.piston.update_d(b['piston_displacement']*1e-2) # need to convert to m
+            f.piston_update_vol()
+            f.V = b['V'] - f.v
+            V = f.volume(p=self.pressure, temp=water_temperature)
+            delta_V = V - b['V']
+            #
+            delta_m = V * delta_rho_water + rho_water * delta_V
+            print('According to balast %s, you need add %.1f g'
+                    %(name, delta_m*1e3))
+
+    def store(self, file):
+        _d = dict(self._d)
+        _v = ['SA','CT','rho_water', 'V']
+        for name, b in _d.items():
+            for v in _v:
+                b[v]=float(b[v])
+        with open(file, 'w') as ofile:
+            documents = yaml.dump(self._d, ofile)
+        print('Balasting data stored in %s'%file)
+
+    def load(self, file):
+        with open(file) as ifile:
+            d = yaml.full_load(ifile)
+        # should check that content of d is valid
+        self._d.update(d)
+        print('File %s loaded'%file)
 
 # ----------------------------- utils ------------------------------------------
 
