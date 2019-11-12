@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 
 s2m = 1./60.
 
@@ -126,7 +127,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         # extrapolate to a 30d long simulation
         nrg = (piston['work'].iloc[-1]-piston['work'].iloc[0]) \
                 /(t.iloc[-1]-t.iloc[0])
-        print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day'
+        print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day' \
               %( nrg*86400, nrg*86400*30. ))
 
 def plot_kalman(log, f, V_e=None, gamma_e=None):
@@ -138,64 +139,74 @@ def plot_kalman(log, f, V_e=None, gamma_e=None):
     #
     ax=fig.add_subplot(231)
     #ax.plot(tk, - k['gamma_diag1'])
-    ax.fill_between(tk, -k['z_kalman'] - np.sqrt(k['gamma_diag0']),
-                        -k['z_kalman'] + np.sqrt(k['gamma_diag0']),
+    ax.fill_between(tk, -k['z'] - np.sqrt(k['gamma_diag0']),
+                        -k['z'] + np.sqrt(k['gamma_diag0']),
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,-k['z_kalman'], color='r', label ="estimated depth")
+    ax.plot(tk,-k['z'], color='r', label ="estimated depth")
     ax.plot(t, state['z'], color='k', label = "real depth")
-    ax.set_title("depth as a function of time")
+    ax.set_title("z  [m]")
     #ax.set_xlabel("t (min)")
-    ax.set_ylabel("z (m)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(232)
-    ax.fill_between(tk, -k['w_kalman'] - np.sqrt(k['gamma_diag1']),
-                        -k['w_kalman'] + np.sqrt(k['gamma_diag1']),
+    ax.fill_between(tk, -k['w'] - np.sqrt(k['gamma_diag1']),
+                        -k['w'] + np.sqrt(k['gamma_diag1']),
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,-k['w_kalman'], color='r', label ="estimated velocity")
+    ax.plot(tk,-k['w'], color='r', label ="estimated velocity")
     ax.plot(t,state['w'], color='k', label = "real velocity")
-    ax.set_title("velocity as a function of time")
+    ax.set_title("velocity [m/s]")
     #ax.set_xlabel("t (min)")
-    ax.set_ylabel("w (m/s)")
-    ax.grid()
-    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
-    #
-    ax=fig.add_subplot(235)
-    ax.fill_between(tk, k['gamma_e_kalman'] - np.sqrt(k['gamma_diag2']),
-                        k['gamma_e_kalman'] + np.sqrt(k['gamma_diag2']),
-                    facecolor='orange', alpha=alpha)
-    ax.plot(tk,k['gamma_e_kalman'], color='r', label ="estimated equivalent compressibility")
-    if gamma_e is not None:
-        ax.axhline(gamma_e,color='k')
-    else:
-        ax.plot(tk,k['gammaV'], color='k', label = "float compressibility x float volume")
-    ax.set_title("equivalent compressibility as a function of time")
-    ax.set_xlabel("t (min)")
-    ax.set_ylabel("gamma_e (m^2)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(234)
-    ax.fill_between(tk, (k['V_e_kalman'] - np.sqrt(k['gamma_diag3']))*1e6,
-                        (k['V_e_kalman'] + np.sqrt(k['gamma_diag3']))*1e6,
+    ax.fill_between(tk, (k['V_e'] - np.sqrt(k['gamma_diag3']))*1e6,
+                        (k['V_e'] + np.sqrt(k['gamma_diag3']))*1e6,
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,k['V_e_kalman']*1e6, color='r', label ="estimated V_e volume")
+    ax.plot(tk,k['V_e']*1e6, color='r', label ="estimated V_e volume")
     if V_e is not None:
-        ax.axhline(V_e*1e6, color='k')
-    else:
-        ax.plot(tk,k['V_e']*1e6, color='k', label = "real V_e volume")
-    ax.set_title("volume V_e as a function of time")
+        if isinstance(V_e,float) or V_e.size==1:
+            ax.axhline(V_e*1e6, color='k')
+        else:
+            ax.plot(tk,V_e*1e6, color='k', label = "real V_e")
+    ax.set_title("volume V_e [cm^3]")
     ax.set_xlabel("t (min)")
-    ax.set_ylabel("V_e (cm^3)")
+    ax.grid()
+    legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(235)
+    ax.fill_between(tk, k['gamma_e'] - np.sqrt(k['gamma_diag2']),
+                        k['gamma_e'] + np.sqrt(k['gamma_diag2']),
+                    facecolor='orange', alpha=alpha)
+    ax.plot(tk,k['gamma_e'], color='r',
+            label ="estimated equivalent compressibility")
+    if gamma_e is not None:
+        if isinstance(gamma_e,float) or gamma_e.size==1:
+            ax.axhline(gamma_e,color='k')
+        else:
+            ax.plot(tk,gamma_e, color='k',
+                label = "gamma_e")
+    else:
+        ax.plot(tk,k['gammaV'], color='k',
+            label = "float compressibility x float volume")
+    ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1e'))
+    ax.set_title(r"equivalent compressibility $\gamma_e$ [m^2]")
+    ax.set_xlabel("t (min)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(233)
+    ax.plot(tk,-k['dwdt'], color='r', label ="estimated acceleration")
     ax.plot(t,state['dwdt'], color='k', label = "real acceleration")
-    ax.plot(tk,-k['dwdt_kalman'], color='r', label ="estimated acceleration")
-    ax.set_title("acceleration dw/dt as a function of time")
+    ax.set_title("acceleration dw/dt [m.s^-2]")
     ax.set_xlabel("t (min)")
-    ax.set_ylabel("dw/dt (m.s^-2)")
     ax.grid()
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    #
+    ax=fig.add_subplot(236)
+    ax.plot(tk,k['dwdt_diff'], color='r', label ="acceleration/force difference")
+    ax.set_title("acceleration/force difference [m.s^-2]")
+    ax.set_xlabel("t (min)")
+    ax.grid()
+    #legend = ax.legend(loc='best', shadow=True, fontsize='medium')

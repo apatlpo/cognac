@@ -32,7 +32,9 @@ def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
         ctrl['integral'] += error*ctrl['dt']
         ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt']
         ctrl['error'] = error
-        u = ctrl['Kp']*ctrl['error'] + ctrl['Ki']*ctrl['integral'] + ctrl['Kd']*ctrl['derivative']
+        u = ctrl['Kp']*ctrl['error'] \
+            + ctrl['Ki']*ctrl['integral'] \
+            + ctrl['Kd']*ctrl['derivative']
 
     elif ctrl['mode'] == 'feedback':
         ctrl['ldb1'] = 2/ctrl['tau'] # /s
@@ -137,9 +139,7 @@ class kalman_filter(object):
 
     def __init__(self, x0, **params_in):
         # default parameters
-        params = {'dt': 1., 'depth_rms': 1e-3, 'verbose': 0}
-        #          'piston_volume_error': 7.e-8,'gamma_alpha_gammaE': 1e-8,
-        #          'verbose': 0}
+        params = {'dt': 1., 'depth_error': 1e-3, 'verbose': 0}
         # check if mandatory parameters are here, bad form ...
         for key in ['m', 'a','rho_cte','c1','Lv','gammaV']:
             assert key in params_in
@@ -147,32 +147,32 @@ class kalman_filter(object):
         params.update(params_in)
         # derived parameters
         _dt = params['dt']
-        if 'vel_rms' not in params:
-            params['vel_rms'] = params['depth_rms']/_dt
+        #if 'vel_rms' not in params:
+        #    params['vel_rms'] = params['depth_rms']/_dt
         #
         # initial state covariance
         if 'gamma' in params:
             params['gamma'] = np.diag(params['gamma'])
-        else:
-            # old and should probably not be used
-            params['gamma'] = np.diag([params['vel_rms']**2,
-                                       params['depth_rms']**2,
-                                       params['gamma_alpha_gammaE']**2,
-                                       params['piston_volume_error']**2])
+        #else:
+        #    # old and should probably not be used
+        #    params['gamma'] = np.diag([params['vel_rms']**2,
+        #                               params['depth_rms']**2,
+        #                               params['gamma_alpha_gammaE']**2,
+        #                               params['piston_volume_error']**2])
         # dynamical noise covariance
         if 'gamma_alpha_scaled' in params:
             params['gamma_alpha'] = _dt**2 * np.diag(params['gamma_alpha_scaled'])
         elif 'gamma_alpha' in params:
             params['gamma_alpha'] = np.diag(params['gamma_alpha'])
-        else:
-            # old and should probably not be used
-            params['gamma_alpha'] = np.diag([params['vel_rms']**2,
-                                        params['depth_rms']**2,
-                                        params['gamma_alpha_gammaE']**2,
-                                        params['piston_volume_error']**2])
+        #else:
+        #    # old and should probably not be used
+        #    params['gamma_alpha'] = np.diag([params['vel_rms']**2,
+        #                                params['depth_rms']**2,
+        #                                params['gamma_alpha_gammaE']**2,
+        #                                params['piston_volume_error']**2])
         # observation noise covariance
         if 'gamma_beta' not in params:
-            params['gamma_beta'] = np.diag([params['depth_rms']**2])
+            params['gamma_beta'] = np.diag([params['depth_error']**2])
         # set parameters as attributes
         for key,val in params.items():
             setattr(self,key,val)
@@ -224,8 +224,8 @@ class kalman_filter(object):
             print('gamma', self.gamma)
 
     def kalman(self,x0,gamma0,u, v, y, A):
-        xup,Gup = self.kalman_correc(x0, gamma0, y)
-        x1,gamma1=self.kalman_predict(xup, Gup, u, v, A)
+        xup, Gup = self.kalman_correc(x0, gamma0, y)
+        x1, gamma1 = self.kalman_predict(xup, Gup, u, v, A)
         return x1, gamma1
 
     def kalman_predict(self, xup, Gup, u, v, A):

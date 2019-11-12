@@ -209,10 +209,15 @@ class autonomous_float():
         rhof = self.rho(p=p,temp=tempw,v=v)
         f += self.m*rhow/rhof*g
         # drag
+        cd = self.c1/(2*Lv) * np.abs(w - waterp.detadt)
         if self.c0 != 0:
-            print(' !!! linear drag coefficient not implemented yet')
-            return None
-        f += -self.m*self.c1/(2*Lv) * np.abs(w - waterp.detadt) * (w - waterp.detadt)
+            N2 = waterp.get_N2(z)
+            if N2>0:
+                N = np.sqrt(N2)
+            else:
+                N = 0.
+            cd += N * self.c0
+        f += -self.m * cd * (w - waterp.detadt)
         # we ignore DwDt terms for now
         return f
 
@@ -328,28 +333,20 @@ class autonomous_float():
         '''
         t=t0
         #
-        if z is None:
-            if not hasattr(self,'z'):
-                z=0.
-            else:
-                z=self.z
-        self.z = z
-
+        if z is not None:
+            self.z = z
+        elif not hasattr(self,'z'):
+            self.z = 0.
         #
-        if V_e is None:
-            if not hasattr(self,'V_e'):
-                V_e=0.
-            else:
-                V_e=self.V_e
-        self.V_e = V_e
-
+        if V_e is not None:
+            self.V_e = V_e
+        elif not hasattr(self,'V_e'):
+            self.V_e = 0.
         #
-        if w is None:
-            if not hasattr(self,'w'):
-                w=0.
-            else:
-                w=self.w
-        self.w = w
+        if w is not None:
+            self.w = w
+        elif not hasattr(self,'w'):
+            self.w = 0.
         self.dwdt = 0.
         #
         _log = {'state':['z','w','v','dwdt']}
@@ -358,16 +355,16 @@ class autonomous_float():
             gamma_e = self.gammaV
         #kalman initialisation
         if kalman:
-            self.init_kalman(kalman, w, z, gamma_e, V_e, verbose)
-            _log['kalman'] = ['V_e', 'gammaV',
-                              'z_kalman','w_kalman', 'V_e_kalman',
-                              'dwdt_kalman', 'gamma_e'] + \
+            self.init_kalman(kalman, self.w, self.z, gamma_e, self.V_e, verbose)
+            _log['kalman'] = ['z','w', 'V_e', 'gamma_e', \
+                              'dwdt', 'dwdt_diff'] + \
                               ['gamma_diag%d'%i for i in range(4)]
         #
         if piston:
             if v is not None:
                 self.piston.update_vol(v)
-            self.v=self.piston.vol
+                self.piston.reset_phi_float()
+            self.v = self.piston.vol
             self.piston_work = 0.
             u = 0.
             if ctrl:
@@ -408,9 +405,10 @@ class autonomous_float():
             self.v = v
         v0 = self.v
         #
-        if Lv is None:
-            Lv = self.L
-        self.Lv = Lv
+        if Lv is not None:
+            self.Lv = Lv
+        else:
+            self.Lv = self.L
         #
         if log:
             self.log = {logname:logger(vars) for logname, vars in _log.items()}
@@ -441,8 +439,6 @@ class autonomous_float():
                                self.V_e])
                     u = control(self.z, z_target, ctrl, t=t, w=self.w,
                                 dwdt=self.dwdt, v=self.v)
-                else:
-                    u = 0.
                 #
                 _v0 = self.piston.vol
                 self.piston.update(dt_step, u)
@@ -452,30 +448,29 @@ class autonomous_float():
                     self.piston_work += dt_step \
                                 * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
                                 * watth /self.piston.efficiency
-
-            # store log
+            #
+            # log data
             if log and (dt_log is not None) and t_modulo_dt(t, dt_log, dt_step):
                 self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
-                                        dwdt=_force/self.m)
+                                        dwdt=_force/(1+self.a)/self.m)
                 if piston:
                     _info = {'time': t, 'u': u, 'work': self.piston_work}
                     self.log['piston'].store(**_info)
                 if kalman:
                     _k = self.kalman
-                    # V_e, gammae
-                    _V_e = _force/(g*self.rho_cte) - self.gammaV * self.z - self.v
-                    #_gammae =
-                    _dwdt = -_k.A_coeff* \
-                        (_k.x_hat[2] + _k.x_hat[3] -_k.gammaV*_k.x_hat[1]) \
-                        -_k.B_coeff*abs(_k.x_hat[0])*_k.x_hat[0]
+                    _dwdt_k = -_k.A_coeff*(_k.x_hat[3] \
+                                           - _k.x_hat[2]*_k.x_hat[1] \
+                                           + self.v) \
+                              -_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
                     #
                     self.log['kalman'].store(time=t,
-                               z_kalman=_k.x_hat[1], w_kalman=_k.x_hat[0],
-                               gamma_e_kalman=_k.x_hat[2], V_e_kalman=_k.x_hat[3],
+                               z=_k.x_hat[1], w=_k.x_hat[0],
+                               V_e=_k.x_hat[3], gamma_e=_k.x_hat[2],
                                **{'gamma_diag%d'%i: _k.gamma[i,i] for i in range(4)},
-                               dwdt_kalman = _dwdt,
-                               V_e=_V_e, gammaV=self.gammaV)
-
+                               dwdt=_dwdt_k,
+                               dwdt_diff=_force/(1+self.a)/self.m + _dwdt_k)
+                    # + in dwdt_diff because kalman uses depth and not z
+            #
             # update variables
             self.z += dt_step*self.w
             self.z = np.amin((self.z,0.))
@@ -518,10 +513,10 @@ class piston():
             number of notches on the thumbwheel of the piston
         d_increment: [m]
             smallest variation of translation motion for the piston
-        increment_error: [no dimension]
-            coefficient measuring the accuracy on the smallest variation of
-            translation motion for the piston (coefficient >= 1)
-        vol_error: [m^3]
+        #increment_error: [no dimension]
+        #    coefficient measuring the accuracy on the smallest variation of
+        #    translation motion for the piston (coefficient >= 1)
+        vol_increment: [m^3]
             smallest variation of volume possible for the piston
         phi_max: float [rad]
             maximum angle of rotation
@@ -537,10 +532,11 @@ class piston():
             volume when piston is fully in
         omega_max: float [rad/s]
             maximum rotation rate
-        omega_min: float [rad/s]
-            minimum rotation rate
+        #omega_min: float [rad/s] (not relevant anymore with d_increment and co)
+        #    minimum rotation rate
         efficiency: float [<1]
-            Piston efficiency, i.e. mechanical work produced over electrical work supplied
+            Piston efficiency, i.e. mechanical work produced over electrical
+            work supplied
 
         """
 
@@ -552,15 +548,15 @@ class piston():
                       'translation_max': 0.12/5600.*225.,
                       'translation_min': 0.12/5600.*10.,
                       'efficiency':.1,
-                      'd_increment' : 0.12/5600.,'increment_error' : 10}
+                      'd_increment' : 0.12/5600.} #,'increment_error' : 10}
         elif model.lower() == 'ensta':
             # default parameters: ENSTA float
             params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0.,
                       'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48,
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.07,
                       'vol_max': 1.718e-4,'vol_min': 0.,
-                      'omega_max': 60./48*2.*np.pi, 'omega_min': 0.,
-                      'efficiency':.1, 'increment_error' : 1}
+                      'omega_max': 60./48*2.*np.pi,
+                      'efficiency':.1} #, 'increment_error' : 1}
             self.d_increment = params['lead']/params['tick_per_turn']
 
             #translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
@@ -606,40 +602,48 @@ class piston():
         #
         self.phi_max = self.d2phi(self.d_max)
         self.update_dvdt()
-        self.vol_error = self.d_increment*((self.r)**2)*np.pi*self.increment_error
+        #
+        self.u_max = self.omega2dvdt(self.omega_max)
+        #
+        self.phi_float = self.phi
+        self.phi_increment = self.d2phi(self.d_min+self.d_increment) \
+                              -self.d2phi(self.d_min)
+        # not sure if vol_increment is still used
+        self.vol_increment = self.d_increment*np.pi*self.r**2 #*self.increment_error
 
     def __repr__(self):
         strout='Piston parameters and state: \n'
-        strout+='  r     = %.2f mm        - piston radius\n'%(self.r*1.e3)
-        strout+='  phi   = %.2f rad       - present angle of rotation\n'%(self.phi)
-        strout+='  d     = %.2f mm        - present piston displacement\n'%(self.d*1.e3)
+        strout+='  r     = %.2f cm        - piston radius\n'%(self.r*1.e2)
+        #strout+='  phi   = %.2f rad       - present angle of rotation\n'%(self.phi)
+        strout+='  d     = %.2f cm        - present piston displacement\n'%(self.d*1.e2)
         strout+='  vol   = %.2f cm^3      - present volume addition\n'%(self.vol*1.e6)
-        strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
+        #strout+='  lead  = %.2f cm        - screw lead\n'%(self.lead*1.e2)
         #strout+='  tick_per_turn  = %.2f no dimension        - number of notches on the thumbwheel of the piston\n'%(self.tick_per_turn)
-        strout+='  d_increment  = %.2f m        - smallest variation of translation motion for the piston\n'%(self.d_increment)
-        strout+='  vol_error  = %.2e m^3        - smallest variation of volume possible for the piston\n'%(self.vol_error)
-        strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
-        strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
+        strout+='  d_increment  = %.2e mm        - smallest variation of translation motion for the piston\n'%(self.d_increment*1e3)
+        strout+='  vol_increment  = %.2e cm^3        - smallest variation of volume possible for the piston\n'%(self.vol_increment*1e6)
+        #strout+='  phi_max = %.2f deg     - maximum rotation\n'%(self.phi_max*1.e2)
+        #strout+='  phi_min = %.2f deg     - minimum rotation\n'%(self.phi_min*1.e2)
         strout+='  d_max = %.2f mm        - maximum piston displacement\n'%(self.d_max*1.e3)
         strout+='  d_min = %.2f mm        - minimum piston displacement\n'%(self.d_min*1.e3)
         strout+='  vol_min = %.2f cm^3    - min volume displaced\n'%(self.vol_min*1.e6)
         strout+='  vol_max = %.2f cm^3    - max volume displaced\n'%(self.vol_max*1.e6)
-        strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
-        strout+='  omega_min = %.2f deg/s - minimum rotation rate\n'%(self.omega_min*180./np.pi)
+        #strout+='  omega_max = %.2f deg/s - maximum rotation rate\n'%(self.omega_max*180./np.pi)
+        #strout+='  omega_min = %.2f deg/s - minimum rotation rate\n'%(self.omega_min*180./np.pi)
+        strout+='  u_max = %.2f cm^3/s - maximum volume rate of change\n'%(self.u_max*1e6)
         strout+='  efficiency = %.2f - mechanical work produced / electrical work supplied\n'%(self.efficiency)
         return strout
 
 #-------------------------- update methods -------------------------------------
 
     def update(self, dt, dvdt):
-        """ Update piston position given time interval and desired volume change
+        """ Update piston position given time interval and a volume rate of change
 
         Parameters
         ----------
         dt: float
             time interval
         dvdt: float
-            desired volume change
+            desired volume rate of change
         """
         omega=self.dvdt2omega(dvdt)
         self.update_omega(omega)
@@ -647,7 +651,9 @@ class piston():
         self.update_phi(dt)
 
     def update_phi(self,dt):
-        self.phi+=self.omega*dt
+        self.phi_float += self.omega*dt
+        dphi = self.phi_float - self.phi
+        self.phi += np.trunc(dphi/self.phi_increment)*self.phi_increment
         self._checkbounds()
         self._bcast_phi()
 
@@ -661,11 +667,11 @@ class piston():
         self._checkbounds()
         self._bcast_phi()
 
-    def update_omega(self,omega):
-        if np.abs(omega)<self.omega_min:
-            self.omega=0.
-        else:
-            self.omega=np.sign(omega)*np.amin([np.abs(omega),self.omega_max])
+    def update_omega(self, omega):
+        #if np.abs(omega)<self.omega_min:
+        #    self.omega=0.
+        #else:
+        self.omega=np.sign(omega)*min([np.abs(omega),self.omega_max])
 
     def update_dvdt(self):
         self.dvdt = self.omega2dvdt(self.omega)
@@ -674,10 +680,16 @@ class piston():
         self.d = self.phi2d(self.phi)
         self.vol = self.phi2vol(self.phi)
 
+    def _checkbounds(self):
+        self.phi = min([max([self.phi,self.phi_min]),self.phi_max])
+        self.phi_float = min([max([self.phi_float,self.phi_min]),self.phi_max])
+
+    def reset_phi_float(self):
+        self.phi_float = self.phi
+
 #--------------------- conversion methods --------------------------------------
 
     def omega2dvdt(self,omega):
-        # /np.pi*np.pi has been simplified
         #to compute omega for the ENSTA float:
         #the motor of the piston needs 48 notches to complete a full rotation
         #it can reach until 30 rotations a seconde
@@ -685,7 +697,6 @@ class piston():
         return omega*self.lead/2.*self.r**2
 
     def dvdt2omega(self,dvdt):
-        # /np.pi*np.pi has been simplified
         return dvdt/(self.lead/2.*self.r**2)
 
     def phi2d(self,phi):
@@ -708,9 +719,6 @@ class piston():
 
     def vol2phi(self,vol):
         return self.d2phi(self.vol2d(vol))
-
-    def _checkbounds(self):
-        self.phi = np.amin([np.amax([self.phi,self.phi_min]),self.phi_max])
 
 # ----------------------------- balast -----------------------------------------
 
@@ -776,7 +784,7 @@ class balast(object):
 
     def compute_mass_adjustment(self, f, w=None, **kwargs):
         """
-        \delta_m = V \delta \rho_w + \rho_w \delta V
+        \delta_m = -V \delta \rho_w - \rho_w \delta V
         """
         if w is not None:
             z = -self.pressure
@@ -787,6 +795,10 @@ class balast(object):
             water_temperature = kwargs['temperature']
             water_salinity = kwargs['salinity']
             lon, lat = kwargs['lon'], kwargs['lat']
+            if isinstance(lon,str):
+                lon = ll_conv(lon)
+            if isinstance(lat,str):
+                lat = ll_conv(lat)
         SA = gsw.SA_from_SP(water_salinity, self.pressure, lon, lat)
         CT = gsw.CT_from_t(SA, water_temperature, self.pressure)
         rho_water = gsw.density.rho(SA, CT, self.pressure) # new in situ density
@@ -822,6 +834,28 @@ class balast(object):
         print('File %s loaded'%file)
 
 # ----------------------------- utils ------------------------------------------
+
+def ll_conv(ll):
+    """ Returns lon or lat as floating degree and vice versa
+    string format should be '43N09.007'
+    This piece of code should be elsewhere
+    """
+    if isinstance(ll,str):
+        if 'N' in ll:
+            _ll = ll.split('N')
+            sign = 1.
+        elif 'S' in ll:
+            _ll = ll.split('S')
+            sign = -1.
+        elif 'E' in ll:
+            _ll = ll.split('E')
+            sign = 1.
+        elif 'W' in ll:
+            _ll = ll.split('W')
+            sign = -1.
+        return sign*(float(_ll[0])+float(_ll[1])/60.)
+    elif isinstance(ll,float):
+        return '%dX%.6f'%(int(ll),(ll-int(ll))*60.)
 
 def plot_float_density(z, f, waterp, mid=False, ax=None):
     ''' Plot float density with respect to that of water profile
@@ -949,7 +983,7 @@ def t_modulo_dt(t, dt, dt_step):
         return False
 
 # build scenarios
-def descent(Tmax, zt, f, waterp, zstart = 0):
+def descent(Tmax, zt, f=None, waterp=None, wmax=None, zstart=0):
     ''' Contruct trajectory of a descent to some depth
     Parameters
     ----------
@@ -962,16 +996,17 @@ def descent(Tmax, zt, f, waterp, zstart = 0):
         Used to compute maximum accelerations
 
     '''
-    # compute bounds on motions
-    fmax, fmin, afmax, wmax = f.compute_bounds(waterp,-500.)
     # build time line
     t = np.arange(0.,Tmax,1.)
+    # compute bounds on motions
+    if f is not None and waterp is not None:
+        fmax, fmin, afmax, wmax = f.compute_bounds(waterp,zt)
+        dzdt_target = -t*afmax/2./f.m
+        dzdt_target[np.where(-dzdt_target>wmax)] = -np.abs(wmax)
+    elif wmax is not None:
+        dzdt_target = t*0. - np.abs(wmax)
     # build trajectory
-    #z_target = np.zeros_like(t)
-    dzdt_target = -t*afmax/2./f.m
-    dzdt_target[np.where(-dzdt_target>wmax)]=-wmax
     z_target = zstart + np.cumsum(dzdt_target*1.)
     z_target[np.where(z_target<zt)] = zt
-
     # convert to callable function
     return interp1d(t, z_target, kind='linear', fill_value='extrapolate')

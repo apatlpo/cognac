@@ -34,9 +34,10 @@ class waterp():
     '''
 
     def __init__(self, pressure=None, temperature=None, salinity=None,
-                       lon=None, lat=None, name=None):
+                       lon=None, lat=None, name=None, interp_method='quadratic'):
 
         self._pts, self._woa = False, False
+        self.interp_method = interp_method
 
         if all([pressure, temperature, salinity, lon, lat]):
             self._load_from_pts(pressure, temperature, salinity,
@@ -105,6 +106,9 @@ class waterp():
         # derive absolute salinity and conservative temperature
         self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
         self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        #
+        self.N2, self.p_mid = gsw.Nsquared(self.SA, self.CT, self.p, lat=self.lat)
+        self.z_mid = gsw.z_from_p(self.p_mid, self.lat)
         # isopycnal displacement and velocity
         self.eta = 0.
         self.detadt = 0.
@@ -159,61 +163,64 @@ class waterp():
     def get_temp(self,z):
         ''' get in situ temperature
         '''
-        #return interp(self.z, self.temp, z)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        #return self.interp(self.temp, z)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         p = self.get_p(z)
         return gsw.conversions.t_from_CT(SA,CT,p)
 
     def get_s(self, z):
         ''' get practical salinity
         '''
-        #return interp(self.z, self.s, z-self.eta)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        #return self.interp(self.s, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         p = self.get_p(z)
         return gsw.conversions.SP_from_SA(SA, p, self.lon, self.lat)
 
     def get_p(self, z):
         ''' get pressure
         '''
-        return interp(self.z, self.p, z)
+        return self.interp(self.p, z)
 
     def get_theta(self, z):
         ''' get potential temperature
         '''
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         return gsw.conversions.pt_from_CT(SA,CT)
 
     def get_rho(self, z, ignore_temp=False):
         p = self.get_p(z)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         if ignore_temp:
             CT[:]=self.CT[0]
             print('Uses a uniform conservative temperature in water density computation, CT= %.1f degC' %self.CT[0])
         return gsw.density.rho(SA, CT, p)
 
+    def get_N2(self, z):
+        return self.interp(self.N2, z-self.eta, z_in=self.z_mid)
+
     def get_compressibility(self, z):
         ' returns compressibility in 1/Pa'
         p = self.get_p(z)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         return gsw.density.kappa(SA, CT, p)*1e4
 
     def get_alpha(self, z):
         ' returns thermal expansion in 1/degC'
         p = self.get_p(z)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         return gsw.density.alpha(SA, CT, p)
 
     def get_beta(self, z):
         ' returns thermal expansion in kg/g'
         p = self.get_p(z)
-        SA = interp(self.z, self.SA, z-self.eta)
-        CT = interp(self.z, self.CT, z-self.eta)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
         return gsw.density.beta(SA, CT, p)
 
     def update_eta(self, eta, t):
@@ -230,9 +237,12 @@ class waterp():
         self.eta = eta(t)
         self.detadt = (eta(t+.1)-eta(t-.1))/.2
 
-
-#----------------------------------- utils -------------------------------------
-
-#
-def interp(z_in, v_in, z_out):
-    return interp1d(z_in, v_in, kind='linear', fill_value='extrapolate')(z_out)
+    # utils
+    def interp(self, v_in, z_out, z_in=None):
+        if z_in is None:
+            z_in = self.z
+        _z = z_in[~(np.isnan(z_in)|np.isnan(v_in))]
+        _v = v_in[~(np.isnan(z_in)|np.isnan(v_in))]
+        return interp1d(_z, _v,
+                        kind=self.interp_method,
+                        bounds_error=False)(z_out)
