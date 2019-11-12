@@ -5,63 +5,61 @@ g=9.81
 
 #------------------------------- controls --------------------------------------
 
-def control(z, z_target, ctrl, t=None, w=None, f=None, dwdt=None, v=None):
-    ''' Implements the control of the float position
-    '''
-    z_t = z_target(t)
-    dz_t = (z_target(t+.05)-z_target(t-.05))/.1
-    d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
-    #
-    if ctrl['mode'] == 'sliding':
+class control(object):
+
+    def __init__(self, **kwargs):
+        for key, item in kwargs.items():
+            setattr(self, key, item)
+        if 'feedback' in self.mode:
+            self.ldb1 = 2/self.tau
+            self.ldb2 = 1/self.tau**2
+            self._A = g*self.rho_cte/((self.a+1)*self.m)
+            self._B = self.c1/(2*self.Lv*(1+self.a))
+
+    def get_u_sliding(self, z_target, t, z, w, f):
+        z_t = z_target(t)
+        dz_t = (z_target(t+.05)-z_target(t-.05))/.1
+        d2z_t = (z_target(t+.05)-2.*z_target(t)+z_target(t-.05))/.05**2
+        #
         #x1=self.z
         x2 = w
         #x3=self.V+self.v
-        #f1=x2
-        f2 = f.compute_force(z, ctrl['waterp'], ctrl['Lv'])/f.m
-        f3 = ( f.volume(z=z+.5, waterp=ctrl['waterp'])
-             - f.volume(z=z-.5, waterp=ctrl['waterp']) )/1. *x2 # dVdz*w
-        df1, df2, df3 = f.compute_dforce(f.z, ctrl['waterp'], ctrl['Lv'])
-        df1, df2, df3 = df1/f.m, df2/f.m, df3/f.m
         #
-        d3y = ctrl['d3y_ctrl']*control_sliding(z, w, f2, z_t, dz_t, d2z_t, ctrl['tau'])
+        #f1=x2
+        f2 = f.compute_force(z, self.waterp, self.Lv)/f.m
+        f3 = ( f.volume(z=z+.5, waterp=self.waterp)
+             - f.volume(z=z-.5, waterp=self.waterp) )/1. *x2 # dVdz*w
+        df1, df2, df3 = f.compute_dforce(f.z, self.waterp, self.Lv)
+        df1, df2, df3 = df1/f.m, df2/f.m, df3/f.m
+        # (z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl)
+        # (z, w, f2, z_t, dz_t, d2z_t,self.tau)
+        d3y = (self.d3y_ctrl
+                * np.sign( d2z_t - f2 + 2.*(dz_t-w)/self.tau
+                            + (z_t-z)/self.tau**2 )
+              )
+        #
         u = df1*x2 + df2*f2 + df3*f3 - d3y
         u = -u/df3
+        return u
 
-    elif ctrl['mode'] == 'pid':
-        error = z_t - z
-        ctrl['integral'] += error*ctrl['dt']
-        ctrl['derivative'] = (error - ctrl['error'])/ctrl['dt']
-        ctrl['error'] = error
-        u = ctrl['Kp']*ctrl['error'] \
-            + ctrl['Ki']*ctrl['integral'] \
-            + ctrl['Kd']*ctrl['derivative']
+    def get_u_pid(self, z_target, t, z):
+        error = z_target(t) - z
+        self.integral += error*self.dt
+        self.derivative = (error - self.error)/self.dt
+        self.error = error
+        u = self.Kp*self.error \
+            + self.Ki*self.integral \
+            + self.Kd*self.derivative
+        return u
 
-    elif ctrl['mode'] == 'feedback':
-        ctrl['ldb1'] = 2/ctrl['tau'] # /s
-        ctrl['ldb2'] = 1/ctrl['tau']**2 # /s^2
-        #f2 = f.compute_force(z, ctrl['waterp'], ctrl['L'])/f.m
-        u = control_feedback(z, w, dwdt, z_t, ctrl['nu'], ctrl['gammaV'], ctrl['L'], ctrl['c1'],
-                             ctrl['m'], ctrl['rho_cte'], ctrl['a'], ctrl['waterp'],
-                             ctrl['ldb1'], ctrl['ldb2'], ctrl['delta'])
+    def get_u_feedback(self, z_target, t, z, w, dwdt, gamma):
+        u = _control_feedback(self.ldb1, self.ldb2, self.nu, self.delta,
+                              z, w, dwdt, z_target(t), gamma,
+                              self._A, self._B)
+        return u
 
-    elif ctrl['mode'] == 'kalman_feedback':
-        u = control_kalman_feedback(z_t, v, ctrl)
-
-    else:
-        print('!! mode '+ctrl['mode']+' is not implemented, exiting ...')
-        sys.exit()
-    return u
-
-def control_sliding(z, dz, d2z, z_t, dz_t, d2z_t, tau_ctrl):
-    ''' Several inputs are required:
-    (z_target,w_target,dwdt_target) - describes the trajectory
-    tau_ctrl  - a time scale of control
-    '''
-    return np.sign( d2z_t - d2z + 2.*(dz_t-dz)/tau_ctrl + (z_t-z)/tau_ctrl**2 )
-
-def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
-                     lbd1, lbd2, delta):
-
+def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
+                      A, B):
     ''' Control feedback of the float position
     Parameters
     ----------
@@ -88,8 +86,6 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
         Float constant density [kg.m^-3]
     a: float
         Float added mass [no dimension]
-    waterp: water profile object
-            Contains information about the water profile
     ldb1: float
         float control parameter 1 [s^-1]
     ldb2: float
@@ -97,36 +93,26 @@ def control_feedback(z, dz, d2z, z_t, nu, gammaV, L, c1, m, rho, a, waterp,
     delta: float
         length scale that defines the zone of influence around the target depth [m]
     '''
-    A = g*rho/((a+1)*m)
-    B = c1/(2*L*(1+a))
-    x1 = -dz
-    dx1 = -d2z
-    x2 = -z
-    x2bar = -z_t
-    e = x2bar - x2
+    #
+    x0 = -dz
+    dx0 = -d2z
+    x1 = -z
+    x1bar = -z_t
+    #
+    e = x1bar - x1
     D = 1 + (e**2)/(delta**2)
-    y = x1 - nu*np.arctan(e/delta)
-    dy = dx1 + nu*x1/(delta*D)
-
+    #
+    y = x0 - nu*np.arctan(e/delta)
+    dy = dx0 + nu*x0/(delta*D)
+    #
     if dz < 0:
         return (1/A)*(lbd1*dy + lbd2*y\
-               + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2)\
-               + 2*B*x1*dx1) + gammaV*x1
-    else: #dz >= 0 not differentiable at value 0 : critical value
+               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
+               + 2*B*x0*dx0) + gamma*x0
+    else:
         return (1/A)*(lbd1*dy + lbd2*y\
-               + nu/delta*(dx1*D + 2*e*x1**2/delta**2)/(D**2)\
-               - 2*B*x1*dx1) + gammaV*x1
-
-def control_kalman_feedback(depth_target, v, ctrl):
-    ''' Control feedback of the float position with kalman filter
-    Parameters
-    ----------
-    z: float
-        Position of the float, 0. at the surface and negative downward [m]
-    '''
-    kalman = ctrl['kalman']
-    x_control = kalman.x_hat
-    return kalman.control(x_control, v, depth_target, ctrl)
+               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
+               - 2*B*x0*dx0) + gamma*x0
 
 
 #------------------------------- kalman filter ---------------------------------
@@ -197,7 +183,18 @@ class kalman_filter(object):
         strout='Kalman filter object: \n'
         strout+='  dt     = %.2f s     - filter time step\n'%(self.dt)
         strout+='  x_hat   = [%.2e,%.2e,%.2e,%.2e] - kalman state \n'%tuple(self.x_hat)
-        strout+=np.array2string(self.gamma, formatter={'float_kind':lambda x: "%.2e" % x})
+        strout+='  sqrt(diag(gamma)): '
+        strout+=np.array2string(np.sqrt(np.diag(self.gamma)),
+                                formatter={'float_kind':lambda x: "%.2e" % x})
+        strout+='\n  sqrt(gamma_alpha) / dt: '
+        strout+=np.array2string(np.sqrt(np.diag(self.gamma_alpha))/self.dt,
+                                formatter={'float_kind':lambda x: "%.2e" % x})
+        #strout+='  sqrt(gamma): \n'
+        #strout+=np.array2string(np.sqrt(self.gamma),
+        #                        formatter={'float_kind':lambda x: "%.2e" % x})
+        #strout+='  sqrt(gamma_alpha) x dt: \n'
+        #strout+=np.array2string(np.sqrt(self.gamma_alpha)*self.dt,
+        #                        formatter={'float_kind':lambda x: "%.2e" % x})
         return strout
 
     def gen_obs(self, z, scale = 1.0):
@@ -259,31 +256,6 @@ class kalman_filter(object):
         dx[2] = 0.0
         dx[3] = 0.0
         return dx
-
-    def control(self, x, v, depth_target, ctrl):
-        l1 = 2/ctrl['tau'] # /s
-        l2 = 1/ctrl['tau']**2 # /s^2
-        nu = ctrl['nu'] # Set the limit speed : 3cm/s # m.s^-1 assesed by simulation
-        delta = ctrl['delta'] #length scale that defines the zone of influence around the target depth, assesed by simulation
-
-        e = -depth_target - x[1]
-        y = x[0] - nu*np.arctan(e/delta)
-
-        dx1 = -self.A_coeff*(x[3] - x[2]*x[1] + v) \
-              -self.B_coeff*x[0]*np.abs(x[0])
-
-        D = 1. + (e/delta)**2
-        dy = dx1 + nu*x[0]/(delta*D)
-
-        if x[0] > 0:
-            return (1/self.A_coeff)*(l1*dy + l2*y \
-                    + nu/delta*(dx1*D + 2*e*x[0]**2/delta**2)/(D**2) \
-                    + 2*self.B_coeff*x[0]*dx1) + x[2]*x[0]
-        else:
-            return (1/self.A_coeff)*(l1*dy + l2*y \
-                    + nu/delta*(dx1*D + 2*e*x[0]**2/delta**2)/(D**2) \
-                    - 2*self.B_coeff*x[0]*dx1) + x[2]*x[0]
-
 
 #----------------------------- feedback parameters -----------------------------
 # Functions to guide the estimation of feedback parameters

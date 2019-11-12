@@ -113,14 +113,14 @@ class autonomous_float():
             prescribed pressure, temperature, density
         '''
         _f = lambda x: rho_eq - self.rho(p=p_eq, temp=temp_eq, v=x)
-        v = fsolve(_f,0.)[0]
+        v = fsolve(_f, 0.)[0]
         return v
 
-    def z4equilibrium(self, waterp):
+    def z4equilibrium(self, waterp, z0=-10):
         ''' Find depth where float is at equilibrium
         '''
         _f = lambda z: waterp.get_rho(z) - self.rho(z=z, waterp=waterp)
-        z = fsolve(_f, 0.)[0]
+        z = fsolve(_f, z0)[0]
         return z
 
     def adjust_m(self, p_eq, temp_eq, rho_eq, offset=0.):
@@ -349,16 +349,22 @@ class autonomous_float():
             self.w = 0.
         self.dwdt = 0.
         #
-        _log = {'state':['z','w','v','dwdt']}
+        if Lv is not None:
+            self.Lv = Lv
+        else:
+            self.Lv = self.L
         #
         if gamma_e is None:
             gamma_e = self.gammaV
-        #kalman initialisation
+        # log init
+        _log = {'state':['z','w','v','dwdt']}
+        # kalman initialisation
         if kalman:
             self.init_kalman(kalman, self.w, self.z, gamma_e, self.V_e, verbose)
             _log['kalman'] = ['z','w', 'V_e', 'gamma_e', \
                               'dwdt', 'dwdt_diff'] + \
                               ['gamma_diag%d'%i for i in range(4)]
+            print(self.kalman)
         #
         if piston:
             if v is not None:
@@ -371,7 +377,7 @@ class autonomous_float():
                 ctrl_default = {'dt': dt_step, 'dz_nochattering': 0.}
                 if ctrl['mode'] == 'sliding':
                     ctrl_default.update({'tau': 60., 'mode': 'sliding',
-                                         'waterp': waterp, 'Lv': self.L, })
+                                         'waterp': waterp, 'Lv': self.L})
                 elif ctrl['mode'] == 'pid':
                     ctrl_default.update({'error':0.,'integral': 0.})
                 elif ctrl['mode'] == 'feedback':
@@ -379,23 +385,28 @@ class autonomous_float():
                                          'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
                                          'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
                                          'gamma': self.gamma, #mechanical compressibility [1/dbar]
-                                         'L': self.L, 'c1': self.c1,'m': self.m,
+                                         'm': self.m, 'a': self.a,
+                                         'Lv': self.Lv, 'c1': self.c1,
                                          'gammaV': self.gammaV,
                                          'rho_cte': self.rho_cte,
-                                         'a': self.a,
-                                         'waterp': waterp})
+                                         })
                 elif ctrl['mode'] == 'kalman_feedback':
+                    _k = self.kalman
                     ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
                                          'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
                                          'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
-                                         'kalman': self.kalman})
+                                         'm': _k.m, 'a': _k.a,
+                                         'Lv': _k.Lv, 'c1': _k.c1,
+                                         'gammaV': _k.gammaV,
+                                         'rho_cte': _k.rho_cte,
+                                         })
                 #
                 ctrl_default.update(ctrl)
-                ctrl = ctrl_default
-                self.ctrl = ctrl
+                self.ctrl = control(**ctrl_default)
+                print('Control parameters:') # should be moved into control class
                 for key, val in ctrl_default.items():
                     if key not in ['waterp','f']:
-                        print(' ctrl: '+key+' = '+str(val))
+                        print('  '+key+' = '+str(val))
                 #
                 _log['piston'] = ['u','work']
         elif v is None:
@@ -404,11 +415,6 @@ class autonomous_float():
         else:
             self.v = v
         v0 = self.v
-        #
-        if Lv is not None:
-            self.Lv = Lv
-        else:
-            self.Lv = self.L
         #
         if log:
             self.log = {logname:logger(vars) for logname, vars in _log.items()}
@@ -431,14 +437,27 @@ class autonomous_float():
             if piston and ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
-                if (np.abs(self.z-z_target(t)) > ctrl['dz_nochattering']) \
-                    and t_modulo_dt(t, ctrl['dt'], dt_step):
-                    if verbose>0:
-                        print('[-w, -z, -dwdt, gammaV, V_e]',
-                              [-self.w, -self.z, -self.dwdt, self.gammaV,
-                               self.V_e])
-                    u = control(self.z, z_target, ctrl, t=t, w=self.w,
-                                dwdt=self.dwdt, v=self.v)
+                _c = self.ctrl
+                if (np.abs(self.z-z_target(t)) > _c.dz_nochattering) \
+                    and t_modulo_dt(t, _c.dt, dt_step):
+                    if _c.mode=='sliding':
+                        u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
+                    elif _c.mode=='pid':
+                        u = _c.get_u_pid(z_target, t, self.z)
+                    elif _c.mode=='feedback':
+                        u = _c.get_u_feedback(z_target, t, self.z, self.w,
+                                              self.dwdt, self.gammaV)
+                    elif _c.mode=='kalman_feedback':
+                        _k = self.kalman
+                        _dwdt = _k.A_coeff*(_k.x_hat[3] \
+                                            -_k.x_hat[2]*_k.x_hat[1] \
+                                            +self.v) \
+                                +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
+                        u = _c.get_u_feedback(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
+                                              _dwdt, _k.x_hat[2])
+                    else:
+                        print('%s is not a valid control method'%_c.mode)
+                        return
                 #
                 _v0 = self.piston.vol
                 self.piston.update(dt_step, u)
@@ -458,18 +477,17 @@ class autonomous_float():
                     self.log['piston'].store(**_info)
                 if kalman:
                     _k = self.kalman
-                    _dwdt_k = -_k.A_coeff*(_k.x_hat[3] \
-                                           - _k.x_hat[2]*_k.x_hat[1] \
-                                           + self.v) \
-                              -_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
+                    _dwdt = _k.A_coeff*(_k.x_hat[3] \
+                                        -_k.x_hat[2]*_k.x_hat[1] \
+                                        + self.v) \
+                            +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
                     #
                     self.log['kalman'].store(time=t,
                                z=_k.x_hat[1], w=_k.x_hat[0],
                                V_e=_k.x_hat[3], gamma_e=_k.x_hat[2],
                                **{'gamma_diag%d'%i: _k.gamma[i,i] for i in range(4)},
-                               dwdt=_dwdt_k,
-                               dwdt_diff=_force/(1+self.a)/self.m + _dwdt_k)
-                    # + in dwdt_diff because kalman uses depth and not z
+                               dwdt=_dwdt,
+                               dwdt_diff=_force/(1+self.a)/self.m - _dwdt)
             #
             # update variables
             self.z += dt_step*self.w
@@ -554,7 +572,7 @@ class piston():
             params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0.,
                       'omega': 0., 'lead': 0.00175, 'tick_per_turn': 48,
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.07,
-                      'vol_max': 1.718e-4,'vol_min': 0.,
+                      'vol_max': 1.718e-4, 'vol_min': 0.,
                       'omega_max': 60./48*2.*np.pi,
                       'efficiency':.1} #, 'increment_error' : 1}
             self.d_increment = params['lead']/params['tick_per_turn']
@@ -584,9 +602,10 @@ class piston():
             if 'd_max' in params:
                 self.d_max=params['d_max']
                 self.vol_min = self.d2vol_no_volmin(self.d_min)
-
-            self.d_max = self.vol2d(self.vol_max)
-            print('Piston max displacement set from max volume')
+                print('Piston vol_min reset from d_min, d_max and vol_max')
+            else:
+                self.d_max = self.vol2d(self.vol_max)
+                print('Piston max displacement set from max volume')
         elif 'd_max' in params:
             self.vol_max = self.d2vol(self.d_max)
             print('Piston max volume set from max displacement')

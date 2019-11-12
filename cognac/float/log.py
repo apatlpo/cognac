@@ -74,8 +74,8 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     if z_target is not None:
         if hasattr(f, 'ctrl'):
             # (x,y) # width # height
-            ax.fill_between(t *s2m, t * 0. - f.ctrl['dz_nochattering'],
-                            t * 0. + f.ctrl['dz_nochattering'],
+            ax.fill_between(t *s2m, t * 0. - f.ctrl.dz_nochattering,
+                            t * 0. + f.ctrl.dz_nochattering,
                             facecolor='orange', alpha=.5)
         ax.plot(t *s2m, state['z'].values - z_target(t), label='z-ztarget')
         ax.legend()
@@ -197,7 +197,7 @@ def plot_kalman(log, f, V_e=None, gamma_e=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(233)
-    ax.plot(tk,-k['dwdt'], color='r', label ="estimated acceleration")
+    ax.plot(tk,k['dwdt'], color='r', label ="estimated acceleration")
     ax.plot(t,state['dwdt'], color='k', label = "real acceleration")
     ax.set_title("acceleration dw/dt [m.s^-2]")
     ax.set_xlabel("t (min)")
@@ -205,7 +205,7 @@ def plot_kalman(log, f, V_e=None, gamma_e=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(236)
-    ax.plot(tk,k['dwdt_diff'], color='r', label ="acceleration/force difference")
+    ax.plot(tk,k['dwdt_diff'], color='tab:blue', label ="acceleration/force difference")
     ax.set_title("acceleration/force difference [m.s^-2]")
     ax.set_xlabel("t (min)")
     ax.grid()
