@@ -16,6 +16,16 @@ class control(object):
             self._A = g*self.rho_cte/((self.a+1)*self.m)
             self._B = self.c1/(2*self.Lv*(1+self.a))
 
+    def __repr__(self):
+        _core_params = ['dt', 'dz_nochattering', 'tau', 'nu', 'delta',
+                        'Kp','Ki','Kd']
+        strout='Control parameters: \n'
+        strout+='  mode = %s \n'%(self.mode)
+        for p in _core_params:
+            if hasattr(self, p):
+                strout+='  %s = %.2e \n'%(p, getattr(self, p))
+        return strout
+
     def get_u_sliding(self, z_target, t, z, w, f):
         z_t = z_target(t)
         dz_t = (z_target(t+.05)-z_target(t-.05))/.1
@@ -74,8 +84,6 @@ def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
         Target depth [m]
     nu: float
         Travel velocity when the float is far from the target position [m.s^-1]
-    gammaV: float
-        Float mechanical compressibility x float volume [m^3/dbar]
     L: float
         Float length [m]
     c1: float
@@ -127,7 +135,7 @@ class kalman_filter(object):
         # default parameters
         params = {'dt': 1., 'depth_error': 1e-3, 'verbose': 0}
         # check if mandatory parameters are here, bad form ...
-        for key in ['m', 'a','rho_cte','c1','Lv','gammaV']:
+        for key in ['m', 'a','rho_cte','c1','Lv']:
             assert key in params_in
         #
         params.update(params_in)
@@ -180,7 +188,7 @@ class kalman_filter(object):
         self.C = np.array([[0, 1, 0, 0.]])
 
     def __repr__(self):
-        strout='Kalman filter object: \n'
+        strout='Kalman filter: \n'
         strout+='  dt     = %.2f s     - filter time step\n'%(self.dt)
         strout+='  x_hat   = [%.2e,%.2e,%.2e,%.2e] - kalman state \n'%tuple(self.x_hat)
         strout+='  sqrt(diag(gamma)): '

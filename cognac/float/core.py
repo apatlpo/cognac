@@ -143,7 +143,7 @@ class autonomous_float():
             self.m = m
             return rho_eq - self.rho(p=p_eq, temp=temp_eq)
         m0 = self.m
-        self.m = fsolve(_f,self.m)[0]
+        self.m = fsolve(_f, self.m)[0]
         self.m += offset*1e-3
         self.rho_cte= self.m / self.V #kg.m^-3
         print('%.1f g '%((self.m-m0)*1.e3+offset) + \
@@ -268,21 +268,11 @@ class autonomous_float():
 
         return fmax, fmin, afmax, wmax
 
-    def init_kalman(self, kalman, w, z, gamma_e, V_e, verbose):
-        _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
-                   'c1':self.c1, 'Lv': self.L, 'gammaV': self.gammaV,
-                   'verbose': verbose}
-        if type(kalman) is dict:
-            _params.update(kalman)
-        _x0 = [-w, -z, gamma_e, V_e]
-        self.kalman = kalman_filter(_x0, **_params)
-
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
                   piston=False, z_target=None,
                   ctrl=None,
                   kalman=None,
-                  gamma_e=None, V_e=None,
                   eta=lambda t: 0.,
                   log=True,
                   dt_log=10.,
@@ -306,8 +296,6 @@ class autonomous_float():
             Initial vertical velocity, negative for downward motions [m.s^-1]
         v: float
             Initial volume adjustement (total volume is V+v) [m^3]
-        V_e: float
-            Volume offset (total volume is V_e+v) [m^3]
         t0: float
             Initial time [t]
         Lv: float
@@ -338,11 +326,6 @@ class autonomous_float():
         elif not hasattr(self,'z'):
             self.z = 0.
         #
-        if V_e is not None:
-            self.V_e = V_e
-        elif not hasattr(self,'V_e'):
-            self.V_e = 0.
-        #
         if w is not None:
             self.w = w
         elif not hasattr(self,'w'):
@@ -353,62 +336,21 @@ class autonomous_float():
             self.Lv = Lv
         else:
             self.Lv = self.L
-        #
-        if gamma_e is None:
-            gamma_e = self.gammaV
         # log init
         _log = {'state':['z','w','v','dwdt']}
         # kalman initialisation
         if kalman:
-            self.init_kalman(kalman, self.w, self.z, gamma_e, self.V_e, verbose)
+            self.init_kalman(kalman, self.w, self.z, verbose)
             _log['kalman'] = ['z','w', 'V_e', 'gamma_e', \
                               'dwdt', 'dwdt_diff'] + \
                               ['gamma_diag%d'%i for i in range(4)]
             print(self.kalman)
         #
-        if piston:
-            if v is not None:
-                self.piston.update_vol(v)
-                self.piston.reset_phi_float()
-            self.v = self.piston.vol
-            self.piston_work = 0.
+        if ctrl:
+            self.init_control(ctrl, v, dt_step)
+            _log['piston'] = ['u','work']
             u = 0.
-            if ctrl:
-                ctrl_default = {'dt': dt_step, 'dz_nochattering': 0.}
-                if ctrl['mode'] == 'sliding':
-                    ctrl_default.update({'tau': 60., 'mode': 'sliding',
-                                         'waterp': waterp, 'Lv': self.L})
-                elif ctrl['mode'] == 'pid':
-                    ctrl_default.update({'error':0.,'integral': 0.})
-                elif ctrl['mode'] == 'feedback':
-                    ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
-                                         'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
-                                         'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
-                                         'gamma': self.gamma, #mechanical compressibility [1/dbar]
-                                         'm': self.m, 'a': self.a,
-                                         'Lv': self.Lv, 'c1': self.c1,
-                                         'gammaV': self.gammaV,
-                                         'rho_cte': self.rho_cte,
-                                         })
-                elif ctrl['mode'] == 'kalman_feedback':
-                    _k = self.kalman
-                    ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
-                                         'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
-                                         'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
-                                         'm': _k.m, 'a': _k.a,
-                                         'Lv': _k.Lv, 'c1': _k.c1,
-                                         'gammaV': _k.gammaV,
-                                         'rho_cte': _k.rho_cte,
-                                         })
-                #
-                ctrl_default.update(ctrl)
-                self.ctrl = control(**ctrl_default)
-                print('Control parameters:') # should be moved into control class
-                for key, val in ctrl_default.items():
-                    if key not in ['waterp','f']:
-                        print('  '+key+' = '+str(val))
-                #
-                _log['piston'] = ['u','work']
+            print(self.ctrl)
         elif v is None:
             if not hasattr(self,'v'):
                 self.v = 0.
@@ -437,27 +379,9 @@ class autonomous_float():
             if piston and ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
-                _c = self.ctrl
-                if (np.abs(self.z-z_target(t)) > _c.dz_nochattering) \
-                    and t_modulo_dt(t, _c.dt, dt_step):
-                    if _c.mode=='sliding':
-                        u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
-                    elif _c.mode=='pid':
-                        u = _c.get_u_pid(z_target, t, self.z)
-                    elif _c.mode=='feedback':
-                        u = _c.get_u_feedback(z_target, t, self.z, self.w,
-                                              self.dwdt, self.gammaV)
-                    elif _c.mode=='kalman_feedback':
-                        _k = self.kalman
-                        _dwdt = _k.A_coeff*(_k.x_hat[3] \
-                                            -_k.x_hat[2]*_k.x_hat[1] \
-                                            +self.v) \
-                                +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
-                        u = _c.get_u_feedback(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
-                                              _dwdt, _k.x_hat[2])
-                    else:
-                        print('%s is not a valid control method'%_c.mode)
-                        return
+                if (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
+                    and t_modulo_dt(t, self.ctrl.dt, dt_step):
+                    u = self.get_control(z_target, t)
                 #
                 _v0 = self.piston.vol
                 self.piston.update(dt_step, u)
@@ -496,6 +420,79 @@ class autonomous_float():
             self.dwdt = _force/(1+self.a)/self.m
             t+=dt_step
         print('... time stepping done')
+
+    def init_control(self, ctrl, v, dt_step):
+        if v is not None:
+            self.piston.update_vol(v)
+            self.piston.reset_phi_float()
+        self.v = self.piston.vol
+        self.piston_work = 0.
+        if ctrl:
+            ctrl_default = {'dt': dt_step, 'dz_nochattering': 0.}
+            if ctrl['mode'] == 'sliding':
+                ctrl_default.update({'tau': 60., 'mode': 'sliding',
+                                     'waterp': waterp, 'Lv': self.L})
+            elif ctrl['mode'] == 'pid':
+                ctrl_default.update({'error':0.,'integral': 0.})
+            elif ctrl['mode'] == 'feedback':
+                ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                     'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
+                                     'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                     'gamma': self.gamma, #mechanical compressibility [1/dbar]
+                                     'm': self.m, 'a': self.a,
+                                     'Lv': self.Lv, 'c1': self.c1,
+                                     'gammaV': self.gammaV,
+                                     'rho_cte': self.rho_cte,
+                                     })
+            elif ctrl['mode'] == 'kalman_feedback':
+                _k = self.kalman
+                ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
+                                     'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
+                                     'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                                     'm': _k.m, 'a': _k.a,
+                                     'Lv': _k.Lv, 'c1': _k.c1,
+                                     'gammaV': _k.gamma_e0,
+                                     'rho_cte': _k.rho_cte,
+                                     })
+            #
+            ctrl_default.update(ctrl)
+            self.ctrl = control(**ctrl_default)
+            #print('Control parameters:') # should be moved into control class
+            #for key, val in ctrl_default.items():
+            #    if key not in ['waterp','f']:
+            #        print('  '+key+' = '+str(val))
+
+    def get_control(self, z_target, t):
+        _c = self.ctrl
+        if _c.mode=='sliding':
+            u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
+        elif _c.mode=='pid':
+            u = _c.get_u_pid(z_target, t, self.z)
+        elif _c.mode=='feedback':
+            u = _c.get_u_feedback(z_target, t, self.z, self.w,
+                                  self.dwdt, self.gammaV)
+        elif _c.mode=='kalman_feedback':
+            _k = self.kalman
+            _dwdt = _k.A_coeff*(_k.x_hat[3] \
+                                -_k.x_hat[2]*_k.x_hat[1] \
+                                +self.v) \
+                    +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
+            u = _c.get_u_feedback(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
+                                  _dwdt, _k.x_hat[2])
+        else:
+            print('%s is not a valid control method'%_c.mode)
+            return
+        return u
+
+    def init_kalman(self, kalman, w, z, verbose):
+        _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
+                   'c1':self.c1, 'Lv': self.L,
+                   'gamma_e0': self.gammaV, 'V_e0': 0.,
+                   'verbose': verbose}
+        if type(kalman) is dict:
+            _params.update(kalman)
+        _x0 = [-w, -z, _params['gamma_e0'], _params['V_e0']]
+        self.kalman = kalman_filter(_x0, **_params)
 
     def plot_logs(self, **kwargs):
         ''' wrapper around plot_logs
