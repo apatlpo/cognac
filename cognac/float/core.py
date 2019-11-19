@@ -739,7 +739,7 @@ class piston():
 # ----------------------------- balast -----------------------------------------
 
 _bvariables = ['mass_in_water', 'mass_in_air',
-               'water_temperature', 'water_salinity',
+               'water_temperature',
                'piston_displacement']
 
 class balast(object):
@@ -781,14 +781,22 @@ class balast(object):
         '''
         if not all(v in kwargs for v in _bvariables):
             print('All following variables should be passed as kwargs:')
-            print(_variables)
+            print(_bvariables)
             print('Abort')
             return
         self._d[name] = {v: kwargs[v] for v in _bvariables}
         _d = self._d[name]
         # derive absolute salinity and conservative temperature
-        SA = gsw.SA_from_SP(kwargs['water_salinity'],
-                                 self.pressure, self.lon, self.lat)
+        if 'water_conductivity' in kwargs:
+            _SP = gsw.SP_from_C(kwargs['water_conductivity'],
+                                 kwargs['water_temperature'],
+                                 self.pressure
+                                 )
+            _d['water_salinity'] = _SP
+            print('Practical salinity derived from conductivity: SP=%.2f'%_SP)
+        else:
+            _SP = kwargs['water_salinity']
+        SA = gsw.SA_from_SP(_SP,self.pressure, self.lon, self.lat)
         CT = gsw.CT_from_t(SA, kwargs['water_temperature'], self.pressure)
         rho_water = gsw.density.rho(SA, CT, self.pressure) # in situ density
         # store derived variables
@@ -798,7 +806,7 @@ class balast(object):
         _d['V'] = _d['mass_in_air']/1e3/rho_water
         _d['comments'] = comments
 
-    def compute_mass_adjustment(self, f, w=None, **kwargs):
+    def compute_mass_adjustment(self, f, w=None, verbose=False, **kwargs):
         """
         \delta_m = -V \delta \rho_w - \rho_w \delta V
         """
@@ -809,7 +817,13 @@ class balast(object):
             lon, lat = w.lon, w.lat
         else:
             water_temperature = kwargs['temperature']
-            water_salinity = kwargs['salinity']
+            if 'salinity' in kwargs:
+                water_salinity = kwargs['salinity']
+            elif 'conductivity' in kwargs:
+                water_salinity = gsw.SP_from_C(kwargs['conductivity'],
+                                     kwargs['temperature'],
+                                     self.pressure
+                                     )
             lon, lat = kwargs['lon'], kwargs['lat']
             if isinstance(lon,str):
                 lon = ll_conv(lon)
@@ -818,23 +832,45 @@ class balast(object):
         SA = gsw.SA_from_SP(water_salinity, self.pressure, lon, lat)
         CT = gsw.CT_from_t(SA, water_temperature, self.pressure)
         rho_water = gsw.density.rho(SA, CT, self.pressure) # new in situ density
+        #
         for name, b in self._d.items():
             delta_rho_water = rho_water - b['rho_water']
             #
             f.m = b['mass_in_air']*1e-3  # need to convert to kg
             f.piston.update_d(b['piston_displacement']*1e-2) # need to convert to m
             f.piston_update_vol()
-            f.V = b['V'] - f.v
-            V = f.volume(p=self.pressure, temp=water_temperature)
-            delta_V = V - b['V']
+            # reset volume and temperature reference
+            f.V = b['V'] - f.v # reset volume to match volume infered from balasting
+            f.temp0 = b['water_temperature']
             #
-            delta_m = V * delta_rho_water + rho_water * delta_V
-            print('According to balast %s, you need add %.1f g'
+            Vb = f.volume(p=self.pressure, temp=b['water_temperature'])
+            V = f.volume(p=self.pressure, temp=water_temperature)
+            delta_V = V - Vb
+            #
+            delta_m0 = -b['mass_in_water']*1e-3
+            delta_m1 = V * delta_rho_water + rho_water * delta_V
+            delta_m = delta_m0 + delta_m1
+            print('-- According to balast %s, you need add %.1f g'
                     %(name, delta_m*1e3))
+            print('(if the weight is external to the float, remember this must be the value in water)')
+            #
+            if verbose:
+                print('Independent mass correction (balast -mass_in_water): %.1f [g]'%(delta_m0*1e3))
+                print('  Water change mass correction: %.1f [g]'%(delta_m1*1e3))
+                delta_m_t = - gsw.density.alpha(SA, CT, self.pressure) \
+                               * (CT-b['CT']) * b['rho_water'] *  V
+                print('    T contribution: %.1f [g]'%(delta_m_t*1e3))
+                delta_m_s = gsw.density.beta(SA, CT, self.pressure) \
+                              * (SA-b['SA']) * b['rho_water'] * V
+                print('    S contribution: %.1f [g]'%(delta_m_s*1e3))
+                print('  New/old in situ density: %.2f, %.2f  [kg/m^3] '%(rho_water, b['rho_water']))
+                print('    difference: %.1f [kg/m^3]'%(delta_rho_water))
+                print('  New/old float volume: %.2e, %.2e  [m^3] '%(V, b['V']))
+                print('    difference: %.1f [cm^3]'%(delta_V*1e6))
 
     def store(self, file):
         _d = dict(self._d)
-        _v = ['SA','CT','rho_water', 'V']
+        _v = ['SA','CT','rho_water', 'V', 'water_salinity']
         for name, b in _d.items():
             for v in _v:
                 b[v]=float(b[v])
