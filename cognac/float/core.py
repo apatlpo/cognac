@@ -180,7 +180,7 @@ class autonomous_float():
         print('Piston reset for equilibrium : vol=%.1e cm^3  ' % (vol*1e6))
         return vol
 
-    def compute_force(self, z, w, waterp, Lv, v=None):
+    def compute_force(self, z, w, waterp, Lv, v=None, sum=True):
         ''' Compute the vertical force exterted on the float
         We assume thermal equilibrium
         Drag is quadratic
@@ -202,12 +202,12 @@ class autonomous_float():
 
         '''
         # gravity
-        f = -self.m*g
+        f_b = -self.m*g
         # upward buoyancy
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
         rhow = waterp.get_rho(z)
         rhof = self.rho(p=p,temp=tempw,v=v)
-        f += self.m*rhow/rhof*g
+        f_b += self.m*rhow/rhof*g
         # drag
         cd = self.c1/(2*Lv) * np.abs(w - waterp.detadt)
         if self.c0 != 0:
@@ -217,9 +217,12 @@ class autonomous_float():
             else:
                 N = 0.
             cd += N * self.c0
-        f += -self.m * cd * (w - waterp.detadt)
+        f_d = -self.m * cd * (w - waterp.detadt)
         # we ignore DwDt terms for now
-        return f
+        if sum:
+            return f_b+f_d
+        else:
+            return f_b+f_d, f_b, f_d
 
     def compute_dforce(self, z, w, waterp, Lv):
         ''' Compute gradients of the vertical force exterted on the float
@@ -270,8 +273,7 @@ class autonomous_float():
 
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
-                  piston=False, z_target=None,
-                  ctrl=None,
+                  ctrl=None, z_target=None,
                   kalman=None,
                   eta=lambda t: 0.,
                   log=True,
@@ -300,8 +302,6 @@ class autonomous_float():
             Initial time [t]
         Lv: float
             Drag length scale [m]
-        piston: boolean, default is False
-            Turns piston usage on and off [no dimension]
         z_target: function
             Target trajectory as a function of time [m]
         w_target: function
@@ -338,6 +338,7 @@ class autonomous_float():
             self.Lv = self.L
         # log init
         _log = {'state':['z','w','v','dwdt']}
+        _log['dynamics'] = ['acceleration','buoyancy','drag']
         # kalman initialisation
         if kalman:
             self.init_kalman(kalman, self.w, self.z, verbose)
@@ -348,9 +349,10 @@ class autonomous_float():
         #
         if ctrl:
             self.init_control(ctrl, v, dt_step)
-            _log['piston'] = ['u','work']
-            u = 0.
             print(self.ctrl)
+            _log['piston'] = ['u', 'work']
+            _log['control'] = []
+            u = 0.
         elif v is None:
             if not hasattr(self,'v'):
                 self.v = 0.
@@ -360,28 +362,41 @@ class autonomous_float():
         #
         if log:
             self.log = {logname:logger(vars) for logname, vars in _log.items()}
+            _log_now = False
+        else:
+            self.log = None
+        if log and ctrl:
+            # used to update contributions to u
+            self.ctrl.log = self.log['control']
+            #self.ctrl._log_now = self._log_now
         #
         print('Start time stepping for %d min ...'%(T/60.))
         #
         _force=0.
         while t<t0+T:
             #
+            if log and (dt_log is not None) and t_modulo_dt(t, dt_log, dt_step):
+                _log_now = True
+            else:
+                _log_now = False
             # get vertical force on float
             waterp.update_eta(eta, t) # update isopycnal displacement
-            _force = self.compute_force(self.z, self.w, waterp,
-                                        self.Lv, v=self.v)
+            _force, _force_b, _force_d = \
+                    self.compute_force(self.z, self.w, waterp,
+                                       self.Lv, v=self.v,
+                                       sum=False)
             #
             # update kalman state estimation
             if kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
                 self.kalman.update_kalman(u, self.v, self.z)
             #
             # control starts here
-            if piston and ctrl:
+            if ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
                 if (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
                     and t_modulo_dt(t, self.ctrl.dt, dt_step):
-                    u = self.get_control(z_target, t)
+                    u = self.get_control(z_target, t, _log_now)
                 #
                 _v0 = self.piston.vol
                 self.piston.update(dt_step, u)
@@ -393,10 +408,15 @@ class autonomous_float():
                                 * watth /self.piston.efficiency
             #
             # log data
-            if log and (dt_log is not None) and t_modulo_dt(t, dt_log, dt_step):
+            if _log_now:
                 self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
                                         dwdt=_force/(1+self.a)/self.m)
-                if piston:
+                self.log['dynamics'].store(time=t,
+                                           acceleration=_force/(1+self.a)/self.m,
+                                           buoyancy=_force_b/(1+self.a)/self.m,
+                                           drag=_force_d/(1+self.a)/self.m,
+                                           )
+                if ctrl:
                     _info = {'time': t, 'u': u, 'work': self.piston_work}
                     self.log['piston'].store(**_info)
                 if kalman:
@@ -419,7 +439,13 @@ class autonomous_float():
             self.w += dt_step*_force/(1+self.a)/self.m
             self.dwdt = _force/(1+self.a)/self.m
             t+=dt_step
+
+        # cleanup logs
+        #for key, item in self.log.items():
+        #    item.cleanup()
+
         print('... time stepping done')
+
 
     def init_control(self, ctrl, v, dt_step):
         if v is not None:
@@ -462,7 +488,7 @@ class autonomous_float():
             #    if key not in ['waterp','f']:
             #        print('  '+key+' = '+str(val))
 
-    def get_control(self, z_target, t):
+    def get_control(self, z_target, t, log):
         _c = self.ctrl
         if _c.mode=='sliding':
             u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
@@ -470,7 +496,7 @@ class autonomous_float():
             u = _c.get_u_pid(z_target, t, self.z)
         elif _c.mode=='feedback':
             u = _c.get_u_feedback(z_target, t, self.z, self.w,
-                                  self.dwdt, self.gammaV)
+                                  self.dwdt, self.gammaV, log)
         elif _c.mode=='kalman_feedback':
             _k = self.kalman
             _dwdt = _k.A_coeff*(_k.x_hat[3] \
@@ -478,7 +504,7 @@ class autonomous_float():
                                 +self.v) \
                     +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
             u = _c.get_u_feedback(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
-                                  _dwdt, _k.x_hat[2])
+                                  _dwdt, _k.x_hat[2], log)
         else:
             print('%s is not a valid control method'%_c.mode)
             return

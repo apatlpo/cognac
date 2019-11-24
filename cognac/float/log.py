@@ -45,10 +45,15 @@ class logger():
         self._df = self._df.append(kwargs, ignore_index=True)
         #self._df.update(kwargs)
 
-    def plot(self):
-        ax = self._df.set_index('time').plot(subplots=True)
-        for a in ax:
-            a.grid()
+    def cleanup(self):
+        ''' Merge duplicated temporal information
+        '''
+        self._df = self._df.groupby('time').mean().reset_index()
+
+    def plot(self, **kwargs):
+        _dkwargs = {'subplots': True, 'grid': True}
+        _dkwargs.update(kwargs)
+        ax = self._df.set_index('time').plot(**_dkwargs)
         return ax
 
 #
@@ -59,9 +64,9 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     state = log['state']
     t = state['time']
     ax = plt.subplot(321)
-    ax.plot(t *s2m, state['z'], label='z')
+    ax.plot(t *s2m, state['z'], color='k', label='z')
     if z_target is not None:
-        ax.plot(t *s2m, z_target(t), color='r', label='target')
+        ax.plot(t *s2m, z_target(t), color='b', label='target')
         if eta is not None:
             ax.plot(t *s2m, z_target(t) + eta(t), color='green', label='target+eta')
     ax.legend(loc=0)
@@ -77,7 +82,8 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
             ax.fill_between(t *s2m, t * 0. - f.ctrl.dz_nochattering,
                             t * 0. + f.ctrl.dz_nochattering,
                             facecolor='orange', alpha=.5)
-        ax.plot(t *s2m, state['z'].values - z_target(t), label='z-ztarget')
+        ax.plot(t *s2m, state['z'].values - z_target(t), \
+                color='k', label='z-ztarget')
         ax.legend()
         ax.set_ylabel('[m]')
         ax.set_ylim([-2., 2.])
@@ -88,16 +94,16 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         ax.yaxis.tick_right()
     #
     ax = plt.subplot(323, sharex=ax)
-    ax.plot(t *s2m, state['w'] * 1.e2, label='dzdt')
+    ax.plot(t *s2m, state['w'] * 1.e2, color='k', label='dzdt')
     ax.legend()
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
     ax = plt.subplot(324)
-    ax.plot(t *s2m, state['v'] * 1.e6, '-', label='v')
+    ax.plot(t *s2m, state['v'] * 1.e6, '-', color='k', label='v')
     # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
-    ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='k')
-    ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='k')
+    ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='0.5')
+    ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='0.5')
     ax.legend()
     ax.set_ylabel('[cm^3]')
     ax.grid()
@@ -105,7 +111,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     ax.yaxis.tick_right()
     #
     ax = plt.subplot(325, sharex=ax)
-    ax.plot(t *s2m, state['dwdt'], label='d2zdt2')
+    ax.plot(t *s2m, state['dwdt'], color='k', label='d2zdt2')
     ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
@@ -116,7 +122,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         t = piston['time']
         #
         ax = plt.subplot(326, sharex=ax)
-        ax.plot(t *s2m, piston['work'], label='piston work')
+        ax.plot(t *s2m, piston['work'], color='k', label='piston work')
         ax.legend()
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
@@ -130,7 +136,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day' \
               %( nrg*86400, nrg*86400*30. ))
 
-def plot_kalman(log, f, V_e=None, gamma_e=None):
+def plot_kalman(log, f, V_e=None, gamma_e=None, z_target=None):
     alpha = 0.7
     state, t = log['state'], log['state']['time']*s2m
     k, tk = log['kalman'], log['kalman']['time']*s2m
@@ -144,6 +150,9 @@ def plot_kalman(log, f, V_e=None, gamma_e=None):
                     facecolor='orange', alpha=alpha)
     ax.plot(tk,-k['z'], color='r', label ="estimated depth")
     ax.plot(t, state['z'], color='k', label = "real depth")
+    if z_target is not None:
+        ax.plot(t, z_target(log['state']['time']),
+                color='b', label='target')
     ax.set_title("z  [m]")
     #ax.set_xlabel("t (min)")
     ax.grid()

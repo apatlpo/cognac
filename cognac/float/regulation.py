@@ -62,11 +62,14 @@ class control(object):
             + self.Kd*self.derivative
         return u
 
-    def get_u_feedback(self, z_target, t, z, w, dwdt, gamma):
+    def get_u_feedback(self, z_target, t, z, w, dwdt, gamma, log):
         u = _control_feedback(self.ldb1, self.ldb2, self.nu, self.delta,
                               z, w, dwdt, z_target(t), gamma,
                               self._A, self._B)
-        return u
+        if log:
+            self.log.store(time=t, u=sum(u),\
+                           **{'u%d'%i: u[i] for i in range(len(u))})
+        return sum(u)
 
 def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
                       A, B):
@@ -108,19 +111,22 @@ def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
     x1bar = -z_t
     #
     e = x1bar - x1
-    D = 1 + (e**2)/(delta**2)
+    D = 1 + e**2/delta**2
     #
     y = x0 - nu*np.arctan(e/delta)
     dy = dx0 + nu*x0/(delta*D)
     #
     if dz < 0:
-        return (1/A)*(lbd1*dy + lbd2*y\
-               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
-               + 2*B*x0*dx0) + gamma*x0
+        _sign = 1.
     else:
-        return (1/A)*(lbd1*dy + lbd2*y\
-               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
-               - 2*B*x0*dx0) + gamma*x0
+        _sign = -1.
+    return (1/A)*lbd1*dy, (1/A)*lbd2*y, \
+            (1/A)*nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2), \
+            (1/A)*_sign*2*B*x0*dx0, gamma*x0
+
+#    return (1/A)*(lbd1*dy + lbd2*y\
+#               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
+#               + _sign*2*B*x0*dx0) + gamma*x0
 
 
 #------------------------------- kalman filter ---------------------------------
