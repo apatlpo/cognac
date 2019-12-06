@@ -145,31 +145,14 @@ class kalman_filter(object):
             assert key in params_in
         #
         params.update(params_in)
-        # derived parameters
-        _dt = params['dt']
-        #if 'vel_rms' not in params:
-        #    params['vel_rms'] = params['depth_rms']/_dt
-        #
         # initial state covariance
         if 'gamma' in params:
             params['gamma'] = np.diag(params['gamma'])
-        #else:
-        #    # old and should probably not be used
-        #    params['gamma'] = np.diag([params['vel_rms']**2,
-        #                               params['depth_rms']**2,
-        #                               params['gamma_alpha_gammaE']**2,
-        #                               params['piston_volume_error']**2])
         # dynamical noise covariance
         if 'gamma_alpha_scaled' in params:
-            params['gamma_alpha'] = _dt**2 * np.diag(params['gamma_alpha_scaled'])
+            params['gamma_alpha'] = params['dt']**2 * np.diag(params['gamma_alpha_scaled'])
         elif 'gamma_alpha' in params:
             params['gamma_alpha'] = np.diag(params['gamma_alpha'])
-        #else:
-        #    # old and should probably not be used
-        #    params['gamma_alpha'] = np.diag([params['vel_rms']**2,
-        #                                params['depth_rms']**2,
-        #                                params['gamma_alpha_gammaE']**2,
-        #                                params['piston_volume_error']**2])
         # observation noise covariance
         if 'gamma_beta' not in params:
             params['gamma_beta'] = np.diag([params['depth_error']**2])
@@ -203,21 +186,18 @@ class kalman_filter(object):
         strout+='\n  sqrt(gamma_alpha) / dt: '
         strout+=np.array2string(np.sqrt(np.diag(self.gamma_alpha))/self.dt,
                                 formatter={'float_kind':lambda x: "%.2e" % x})
-        #strout+='  sqrt(gamma): \n'
-        #strout+=np.array2string(np.sqrt(self.gamma),
-        #                        formatter={'float_kind':lambda x: "%.2e" % x})
-        #strout+='  sqrt(gamma_alpha) x dt: \n'
-        #strout+=np.array2string(np.sqrt(self.gamma_alpha)*self.dt,
-        #                        formatter={'float_kind':lambda x: "%.2e" % x})
+        strout+='\n  sqrt(gamma_beta): '
+        strout+=np.array2string(np.sqrt(np.diag(self.gamma_beta)),
+                                formatter={'float_kind':lambda x: "%.2e" % x})
         return strout
 
-    def gen_obs(self, z, scale = 1.0):
+    def gen_obs(self, z):
         # build observations
-        y_depth = -z + np.random.normal(loc=0.0,
-                    scale=np.sqrt(self.gamma_beta[0,0]))
+        y_depth = -z \
+                 + np.random.normal(loc=0.0, scale=self.depth_error)
         return [y_depth]
 
-    def update_kalman(self, u, v, z):
+    def update_kalman(self, v, z):
         # update state
         self.A[0,0] = 1 - self.dt*self.B_coeff*np.abs(self.x_hat[0])
         self.A[0,1] = 1 + self.dt*self.A_coeff*self.x_hat[2]
@@ -225,27 +205,26 @@ class kalman_filter(object):
         y = self.gen_obs(z)
         if self.verbose>0:
             print("x kalman", self.x_hat)
-        (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, u, v, y,
-                                              self.A)
+        (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, v, y,
+                                               self.A)
         if self.verbose>1:
             print("x0 iteration", self.x_hat)
             print('x_hat', self.x_hat)
-            print('u', u)
             print('z', z)
             print('gamma', self.gamma)
 
-    def kalman(self,x0,gamma0,u, v, y, A):
+    def kalman(self, x0, gamma0, v, y, A):
         xup, Gup = self.kalman_correc(x0, gamma0, y)
-        x1, gamma1 = self.kalman_predict(xup, Gup, u, v, A)
+        x1, gamma1 = self.kalman_predict(xup, Gup, v, A)
         return x1, gamma1
 
-    def kalman_predict(self, xup, Gup, u, v, A):
+    def kalman_predict(self, xup, Gup, v, A):
         gamma1 = (A @ Gup @ A.T)
         gamma1 += self.gamma_alpha
-        x1 = xup + self.f(xup, u, v)*self.dt
+        x1 = xup + self.f(xup, v)*self.dt
         return x1, gamma1
 
-    def kalman_correc(self,x0,gamma0,y):
+    def kalman_correc(self, x0, gamma0, y):
         C = self.C
         S = C @ gamma0 @ C.T + self.gamma_beta
         K = gamma0 @ C.T @ np.linalg.inv(S)
@@ -262,7 +241,7 @@ class kalman_filter(object):
             print('ytilde', ytilde)
         return xup, Gup
 
-    def f(self,x, u, v):
+    def f(self, x, v):
         dx = np.array(x)
         dx[0] = -self.A_coeff*(x[3] - x[2]*x[1] + v) \
                 -self.B_coeff*x[0]*np.abs(x[0])

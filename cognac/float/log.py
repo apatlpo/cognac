@@ -3,6 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
+from bokeh.io import output_notebook, show
+from bokeh.layouts import gridplot
+from bokeh.models import ColumnDataSource, HoverTool
+from bokeh.plotting import figure
+from bokeh.palettes import Category10 as palette
+
 s2m = 1./60.
 
 class logger():
@@ -55,6 +61,20 @@ class logger():
         _dkwargs.update(kwargs)
         ax = self._df.set_index('time').plot(**_dkwargs)
         return ax
+
+    def plot_bk(self):
+
+        _d = self._df
+
+        output_notebook()
+        TOOLS = 'pan,wheel_zoom,box_zoom,reset,help'
+        colors = palette[10]
+        
+        s1 = figure(tools=TOOLS, plot_width=600, plot_height=300, title=None)
+        iters = ((_d[c],c) for c in _d.columns if c is not 'time')
+        for c, col in zip(iters, colors):
+            s1.line(_d['time']/60, c[0], legend=c[1], color=col, line_width=3)
+        show(s1)
 
 #
 def plot_logs(log, f, z_target=None, eta=None, title=None):
