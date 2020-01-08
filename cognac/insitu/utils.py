@@ -166,6 +166,9 @@ class campaign(object):
                     self._units[i][d[1:]] = value
                     self._units[i]._skip.append(d[1:])
 
+    def __repr__(self):
+        print(self.name)
+
     def __getitem__(self, item):
         if item in self._units:
             return self._units[item]

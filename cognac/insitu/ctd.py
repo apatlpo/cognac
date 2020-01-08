@@ -6,6 +6,8 @@
 import pandas as pd
 import numpy as np
 
+import gsw
+
 import matplotlib.pyplot as plt
 
 from bokeh.io import output_notebook, show
@@ -93,7 +95,7 @@ class ctd(object):
         for key in ctd_attrs:
             setattr(self, key, p[key])
 
-    #
+    # cleaning and resampling
     def resample(self, *args, **kwargs):
         # should add option to compute in place or not
         self.d = self.d.resample(*args, **kwargs).mean()
@@ -120,7 +122,11 @@ class ctd(object):
             dpdt.plot()
             dpdt[dpdt>threshold].plot(color='orange')
 
-    #
+    # EOS
+    def _update_eos(self):
+        pass
+
+    # plotting
     def plot(self, **kwargs):
         #self.d.plot(**kwargs)
         Nx = 4
