@@ -14,7 +14,7 @@ flow/inspiration/
 float/082218_20190416_1455_data.txt
 float/082905_20190416_1443_data.txt
 
-# eclipse related files 
+# eclipse related files
 .project
 .pydevproject
 .settings/
@@ -33,6 +33,7 @@ float/082905_20190416_1443_data.txt
 *.jpg
 !phd/schematic.jpg
 !phd/cmap.jpg
+*.eps
 *.pdf
 *.mp4
 *.wav

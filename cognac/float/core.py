@@ -394,16 +394,24 @@ class autonomous_float():
             if ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
-                if (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
-                    and t_modulo_dt(t, self.ctrl.dt, dt_step):
+                _ctrl_now = ( (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
+                          and t_modulo_dt(t, self.ctrl.dt, dt_step) )
+                if _ctrl_now:
                     u = self.get_control(z_target, t, _log_now)
-                #
+                if self.ctrl.continuous:
+                    _dt = dt_step
+                elif _ctrl_now:
+                    _dt = self.ctrl.dt
+                else:
+                    _dt = 0.
+                if self.ctrl.mode == 'kalman_feedback1' and _dt>0:
+                    u = (u-self.piston.vol)/_dt
                 _v0 = self.piston.vol
-                self.piston.update(dt_step, u)
+                self.piston.update(_dt, u)
                 self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
                 if self.v != _v0:
-                    self.piston_work += dt_step \
+                    self.piston_work += _dt \
                                 * np.abs((waterp.get_p(self.z)*1.e4 - p_float)*u) \
                                 * watth /self.piston.efficiency
             #
@@ -460,7 +468,7 @@ class autonomous_float():
                                      'waterp': waterp, 'Lv': self.L})
             elif ctrl['mode'] == 'pid':
                 ctrl_default.update({'error':0.,'integral': 0.})
-            elif ctrl['mode'] == 'feedback':
+            elif 'feedback' in ctrl['mode']:
                 ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
                                      'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
                                      'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
@@ -470,11 +478,9 @@ class autonomous_float():
                                      'gammaV': self.gammaV,
                                      'rho_cte': self.rho_cte,
                                      })
-            elif ctrl['mode'] == 'kalman_feedback':
+            if 'kalman' in ctrl['mode']:
                 _k = self.kalman
-                ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
-                                     'nu': 0.03*2./np.pi, # Set the limit speed, 3cm/s assesed by simulation
-                                     'delta': 0.11, #length scale that defines the zone of influence around the target depth, assesed by simulation
+                ctrl_default.update({
                                      'm': _k.m, 'a': _k.a,
                                      'Lv': _k.Lv, 'c1': _k.c1,
                                      'gammaV': _k.gamma_e0,
@@ -494,16 +500,20 @@ class autonomous_float():
             u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
         elif _c.mode=='pid':
             u = _c.get_u_pid(z_target, t, self.z)
-        elif _c.mode=='feedback':
-            u = _c.get_u_feedback(z_target, t, self.z, self.w,
-                                  self.dwdt, self.gammaV, log)
-        elif _c.mode=='kalman_feedback':
+        elif _c.mode=='feedback2':
+            u = _c.get_u_feedback2(z_target, t, self.z, self.w,
+                                   self.dwdt, self.gammaV, log)
+        elif _c.mode=='kalman_feedback1':
+            _k = self.kalman
+            u = _c.get_u_feedback1(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
+                                   _k.x_hat[3], _k.x_hat[2], log)
+        elif _c.mode=='kalman_feedback2':
             _k = self.kalman
             _dwdt = _k.A_coeff*(_k.x_hat[3] \
                                 -_k.x_hat[2]*_k.x_hat[1] \
                                 +self.v) \
                     +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
-            u = _c.get_u_feedback(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
+            u = _c.get_u_feedback2(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
                                   _dwdt, _k.x_hat[2], log)
         else:
             print('%s is not a valid control method'%_c.mode)

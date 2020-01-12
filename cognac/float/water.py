@@ -116,7 +116,7 @@ class waterp():
         if name is None:
             self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
 
-    def show_on_map(self,zdiff=None):
+    def show_on_map(self, zdiff=None):
         if self._woa:
             ds = xr.open_dataset(self._tfile, decode_times=False).squeeze()
             #
@@ -126,7 +126,7 @@ class waterp():
                 title = 't(%dm) - t(%dm) [degC]'%(zdiff[0],zdiff[1])
                 print('t(0m) - t(500m) global maximum = %.1f degC'%toplt.max())
             else:
-                toplt = ds['t_an'].sel(depth=zdiff[0])
+                toplt = ds['t_an'].sel(depth=0)
                 title = 'sea surface temperature [degC]'
             #
             crs=ccrs.PlateCarree()

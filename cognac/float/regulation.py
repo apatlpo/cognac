@@ -10,6 +10,8 @@ class control(object):
     def __init__(self, **kwargs):
         for key, item in kwargs.items():
             setattr(self, key, item)
+        if not hasattr(self, 'continuous'):
+            self.continuous = True
         if 'feedback' in self.mode:
             self.ldb1 = 2/self.tau
             self.ldb2 = 1/self.tau**2
@@ -18,7 +20,7 @@ class control(object):
 
     def __repr__(self):
         _core_params = ['dt', 'dz_nochattering', 'tau', 'nu', 'delta',
-                        'Kp','Ki','Kd']
+                        'Kp','Ki','Kd', 'continuous']
         strout='Control parameters: \n'
         strout+='  mode = %s \n'%(self.mode)
         for p in _core_params:
@@ -62,8 +64,17 @@ class control(object):
             + self.Kd*self.derivative
         return u
 
-    def get_u_feedback(self, z_target, t, z, w, dwdt, gamma, log):
-        u = _control_feedback(self.ldb1, self.ldb2, self.nu, self.delta,
+    def get_u_feedback1(self, z_target, t, z, w, V, gamma, log):
+        u = _control_feedback1(self.ldb1, self.nu, self.delta,
+                              z, w, z_target(t), V, gamma,
+                              self._A, self._B)
+        if log:
+            self.log.store(time=t, u=sum(u),\
+                           **{'u%d'%i: u[i] for i in range(len(u))})
+        return sum(u)
+
+    def get_u_feedback2(self, z_target, t, z, w, dwdt, gamma, log):
+        u = _control_feedback2(self.ldb1, self.ldb2, self.nu, self.delta,
                               z, w, dwdt, z_target(t), gamma,
                               self._A, self._B)
         if log:
@@ -71,12 +82,60 @@ class control(object):
                            **{'u%d'%i: u[i] for i in range(len(u))})
         return sum(u)
 
-def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
+def _control_feedback1(lbd1, nu, delta, z, dz, z_t, V, gamma,
                       A, B):
     ''' Control feedback of the float position
     Parameters
     ----------
 
+    ldb1: float
+        float control parameter 1 [s^-1]
+    nu: float
+        Travel velocity when the float is far from the target position [m.s^-1]
+    delta: float
+        length scale that defines the zone of influence around the target depth [m]
+    z: float
+        Position of the float, 0. at the surface and negative downward [m]
+    dz: float
+        Vertical velocity of the float, negative for downward motions [m.s^-1]
+    z_target: float
+        Target depth [m]
+    V: float
+        equivalent volume [m^3]
+    gamma: float
+        equivalent compressibility [m^2]
+    A, B: float
+        A = g rho / [(1+a)m], B = c_1/[2(1+a)L]
+    '''
+    #
+    x0 = -dz
+    x1 = -z
+    x1bar = -z_t
+    #
+    e = x1bar - x1
+    D = 1 + e**2/delta**2
+    #
+    y = x0 - nu*np.arctan(e/delta)
+    #
+    return (1/A)*lbd1*y, \
+            (1/A)*nu/delta*x0/D, \
+            -(1/A)*2*B*np.abs(x0)*x0, \
+            -V, gamma*x0
+
+def _control_feedback2(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
+                      A, B):
+    ''' Control feedback of the float position
+    Parameters
+    ----------
+
+    ldb1: float
+        float control parameter 1 [s^-1]
+    ldb2: float
+        float control parameter 2 [s^-2]
+    nu: float
+        Travel velocity when the float is far from the target position [m.s^-1]
+    delta: float
+        length scale that defines the zone of influence around the target depth [m]
     z: float
         Position of the float, 0. at the surface and negative downward [m]
     dz: float
@@ -85,24 +144,11 @@ def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
         Vertical acceleration of the float, negative for downward accelerations [m.s^-2]
     z_target: float
         Target depth [m]
-    nu: float
-        Travel velocity when the float is far from the target position [m.s^-1]
-    L: float
-        Float length [m]
-    c1: float
-        Float drag parameter
-    m: float
-        Float mass [kg]
-    rho: float
-        Float constant density [kg.m^-3]
-    a: float
-        Float added mass [no dimension]
-    ldb1: float
-        float control parameter 1 [s^-1]
-    ldb2: float
-        float control parameter 2 [s^-2]
-    delta: float
-        length scale that defines the zone of influence around the target depth [m]
+    gamma: float
+        equivalent compressibility [m^2]
+    A, B: float
+        A = g rho / [(1+a)m], B = c_1/[2(1+a)L]
+
     '''
     #
     x0 = -dz
@@ -116,7 +162,7 @@ def _control_feedback(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
     y = x0 - nu*np.arctan(e/delta)
     dy = dx0 + nu*x0/(delta*D)
     #
-    if dz < 0:
+    if x0 > 0:
         _sign = 1.
     else:
         _sign = -1.
