@@ -206,6 +206,10 @@ class autonomous_float():
         # upward buoyancy
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
         rhow = waterp.get_rho(z)
+        # for latter storage
+        self.w_tempw = tempw
+        self.w_rhow = rhow
+        #
         rhof = self.rho(p=p,temp=tempw,v=v)
         f_b += self.m*rhow/rhof*g
         # drag
@@ -337,7 +341,7 @@ class autonomous_float():
         else:
             self.Lv = self.L
         # log init
-        _log = {'state':['z','w','v','dwdt']}
+        _log = {'state':['z','w','v','dwdt','w_temp','w_rho']}
         _log['dynamics'] = ['acceleration','buoyancy','drag']
         # kalman initialisation
         if kalman:
@@ -418,7 +422,9 @@ class autonomous_float():
             # log data
             if _log_now:
                 self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
-                                        dwdt=_force/(1+self.a)/self.m)
+                                        dwdt=_force/(1+self.a)/self.m,
+                                        w_temp=self.w_tempw,
+                                        w_rho=self.w_rhow)
                 self.log['dynamics'].store(time=t,
                                            acceleration=_force/(1+self.a)/self.m,
                                            buoyancy=_force_b/(1+self.a)/self.m,
