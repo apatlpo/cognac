@@ -58,7 +58,7 @@ class SeabotData(object):
     	#	print(type(getattr(self,a)))
     	#	print(isinstance(getattr(self,a), np.ndarray))
     	attrs = [a for a in dir(self) if isinstance(getattr(self,a), np.ndarray)]
-    	df = pd.DataFrame(index=[startDate+datetime.timedelta(t, unit='s') for t in self.time],
+    	df = pd.DataFrame(index=[startDate+pd.to_timedelta(t, unit='s') for t in self.time],
 	                      data={a: getattr(self,a) for a in attrs})
     	return df
 
@@ -248,11 +248,14 @@ class KalmanData(SeabotData):
         self.offset = np.empty([self.nb_elements], dtype=np.float64)
         self.chi = np.empty([self.nb_elements], dtype=np.float64)
         self.chi2 = np.empty([self.nb_elements], dtype=np.float64)
+        self.cz = np.empty([self.nb_elements], dtype=np.float64)
         self.offset_total = np.empty([self.nb_elements], dtype=np.float64)
         self.cov_depth = np.empty([self.nb_elements], dtype=np.float64)
         self.cov_velocity = np.empty([self.nb_elements], dtype=np.float64)
         self.cov_offset = np.empty([self.nb_elements], dtype=np.float64)
         self.cov_chi = np.empty([self.nb_elements], dtype=np.float64)
+        self.cov_chi2 = np.empty([self.nb_elements], dtype=np.float64)
+        self.cov_cz = np.empty([self.nb_elements], dtype=np.float64)
         self.valid = np.empty([self.nb_elements], dtype=np.uint8)
 
 ####################### Regulation #######################
@@ -633,11 +636,14 @@ def load_bag(filename, rosoutData, rosoutAggData, pistonStateData, pistonSetPoin
             kalmanData.offset[kalmanData.k] = msg.offset
             kalmanData.chi[kalmanData.k] = msg.chi
             kalmanData.chi2[kalmanData.k] = msg.chi2
+            kalmanData.cz[kalmanData.k] = msg.cz
             kalmanData.offset_total[kalmanData.k] = msg.offset_total
             kalmanData.cov_depth[kalmanData.k] = msg.variance[0]
             kalmanData.cov_velocity[kalmanData.k] = msg.variance[1]
             kalmanData.cov_offset[kalmanData.k] = msg.variance[2]
             kalmanData.cov_chi[kalmanData.k] = msg.variance[3]
+            kalmanData.cov_chi2[kalmanData.k] = msg.variance[4]
+            kalmanData.cov_cz[kalmanData.k] = msg.variance[5]
             if hasattr(msg, 'valid'):
                 if(msg.valid):
                     kalmanData.valid[kalmanData.k] = 1
@@ -764,7 +770,10 @@ if __name__ == '__main__':
 		data = get_datadict()
 		startTime = load_bag(bagfile, *data.values())
 
-		startDate = datetime.datetime.fromtimestamp(startTime.to_time())
+		#startDate = datetime.datetime.fromtimestamp(startTime.to_time())
+		print
+		startDate = pd.to_datetime(startTime.to_time(), unit='s')
+		print(startDate)
 
 		out_dir = './pd_'+bagfile.split('/')[-1].split('.')[0]
 		print(out_dir)
