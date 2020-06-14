@@ -7,7 +7,7 @@ bash
 conda update conda
 conda create -n cognac -c conda-forge \
     python=3.6 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
-    cartopy gsw 
+    cartopy hvplot gsw 
 conda activate cognac
 pip install pynmea2
 pip install cmocean

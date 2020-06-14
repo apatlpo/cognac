@@ -58,7 +58,7 @@ class SeabotData(object):
     	#	print(type(getattr(self,a)))
     	#	print(isinstance(getattr(self,a), np.ndarray))
     	attrs = [a for a in dir(self) if isinstance(getattr(self,a), np.ndarray)]
-    	df = pd.DataFrame(index=[startDate+datetime.timedelta(t) for t in self.time],
+    	df = pd.DataFrame(index=[startDate+datetime.timedelta(t, unit='s') for t in self.time],
 	                      data={a: getattr(self,a) for a in attrs})
     	return df
 

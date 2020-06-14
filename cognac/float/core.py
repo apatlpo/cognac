@@ -76,7 +76,9 @@ class autonomous_float():
         strout+='  V     = %.2e cm^3   - float volume\n'%(self.V*1.e6)
         strout+='  rho_cte = m/V = %.2e kg.cm^3   - float baseline density\n'%(self.rho_cte*1.e6)
         strout+='  gamma = %.2e /dbar  - mechanical compressibility\n'%(self.gamma)
+        strout+='  gamma x V = %.2e cm^3/dbar  - normalized compressibility\n'%(self.gamma*self.V*1.e6)
         strout+='  alpha = %.2e /degC  - thermal compressibility\n'%(self.alpha)
+        strout+='  alpha x V = %.2e cm^3/degC  - normalized thermal compressibility\n'%(self.alpha*self.V*1.e6)
         strout+='  temp0 = %.2e  degC  - reference temperature\n'%(self.temp0)
         strout+='  a = %.2e  (no dimension)  - float added mass\n'%(self.a)
         strout+='  c0 = %.2e  (no dimension)  - float drag parameter 0\n'%(self.c0)
@@ -602,10 +604,10 @@ class piston():
             params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0.,
                       'omega': 0., 'lead': 1,
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0.,
-                      'translation_max': 0.12/5600.*225.,
-                      'translation_min': 0.12/5600.*10.,
+                      'translation_max': 0.12,
+                      'translation_min': 0.03,
                       'efficiency':.1,
-                      'd_increment' : 0.12/5600.} #,'increment_error' : 10}
+                      'd_increment' : 0.12*4./5600.} #,'increment_error' : 10}
         elif model.lower() == 'ensta':
             # default parameters: ENSTA float
             params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0.,
@@ -668,6 +670,7 @@ class piston():
                               -self.d2phi(self.d_min)
         # not sure if vol_increment is still used
         self.vol_increment = self.d_increment*np.pi*self.r**2 #*self.increment_error
+        self.tick_to_volume = self.vol_increment
 
     def __repr__(self):
         strout='Piston parameters and state: \n'

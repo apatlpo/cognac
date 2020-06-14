@@ -39,7 +39,8 @@ class waterp():
         self._pts, self._woa = False, False
         self.interp_method = interp_method
 
-        if all([pressure, temperature, salinity, lon, lat]):
+        args = [pressure, temperature, salinity, lon, lat]
+        if all([a is not None for a in args]):
             self._load_from_pts(pressure, temperature, salinity,
                                 lon, lat, name)
         elif all([lon ,lat]):

@@ -13,8 +13,8 @@ class control(object):
         if not hasattr(self, 'continuous'):
             self.continuous = True
         if 'feedback' in self.mode:
-            self.ldb1 = 2/self.tau
-            self.ldb2 = 1/self.tau**2
+            self.lbd1 = 2/self.tau
+            self.lbd2 = 1/self.tau**2
             self._A = g*self.rho_cte/((self.a+1)*self.m)
             self._B = self.c1/(2*self.Lv*(1+self.a))
 
@@ -65,7 +65,7 @@ class control(object):
         return u
 
     def get_u_feedback1(self, z_target, t, z, w, V, gamma, log):
-        u = _control_feedback1(self.ldb1, self.nu, self.delta,
+        u = _control_feedback1(self.lbd1, self.nu, self.delta,
                               z, w, z_target(t), V, gamma,
                               self._A, self._B)
         if log:
@@ -74,7 +74,7 @@ class control(object):
         return sum(u)
 
     def get_u_feedback2(self, z_target, t, z, w, dwdt, gamma, log):
-        u = _control_feedback2(self.ldb1, self.ldb2, self.nu, self.delta,
+        u = _control_feedback2(self.lbd1, self.lbd2, self.nu, self.delta,
                               z, w, dwdt, z_target(t), gamma,
                               self._A, self._B)
         if log:
@@ -88,7 +88,7 @@ def _control_feedback1(lbd1, nu, delta, z, dz, z_t, V, gamma,
     Parameters
     ----------
 
-    ldb1: float
+    lbd1: float
         float control parameter 1 [s^-1]
     nu: float
         Travel velocity when the float is far from the target position [m.s^-1]
@@ -128,9 +128,9 @@ def _control_feedback2(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
     Parameters
     ----------
 
-    ldb1: float
+    lbd1: float
         float control parameter 1 [s^-1]
-    ldb2: float
+    lbd2: float
         float control parameter 2 [s^-2]
     nu: float
         Travel velocity when the float is far from the target position [m.s^-1]
