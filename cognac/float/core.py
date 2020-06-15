@@ -274,8 +274,22 @@ class autonomous_float():
         #    print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
         #    print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
         #          %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
-
         return fmax, fmin, afmax, wmax
+        
+    def get_drag_velocity(self, dm, Lv=None):
+        """ From a mass offset compute the drag velocity
+        
+        Parameters:
+        -----------
+        dm: float
+            mass offset [kg]
+        """
+        if not Lv:
+            if hasattr(self, 'Lv'):
+                Lv = self.Lv
+            else:
+                Lv = self.L
+        return np.sqrt( g*dm/self.m * 2*Lv / self.c1)
 
     def time_step(self, waterp, T=600., dt_step=1.,
                   z=None, w=None, v=None, t0=0., Lv=None,
@@ -606,8 +620,8 @@ class piston():
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0.,
                       'translation_max': 0.12,
                       'translation_min': 0.03,
-                      'efficiency':.1,
-                      'd_increment' : 0.12*4./5600.} #,'increment_error' : 10}
+                      'efficiency': .1,
+                      'd_increment': 0.12*4./5600.}
         elif model.lower() == 'ensta':
             # default parameters: ENSTA float
             params = {'r': 0.025, 'phi': 0., 'd': 0., 'vol': 0.,
@@ -615,7 +629,7 @@ class piston():
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.07,
                       'vol_max': 1.718e-4, 'vol_min': 0.,
                       'omega_max': 60./48*2.*np.pi,
-                      'efficiency':.1} #, 'increment_error' : 1}
+                      'efficiency':.1}
             self.d_increment = params['lead']/params['tick_per_turn']
 
             #translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
