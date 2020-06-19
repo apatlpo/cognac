@@ -3,3 +3,5 @@ from .core import *
 #from .log import *
 from .water import *
 from . import regulation
+from . import seabot
+

@@ -1007,14 +1007,16 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
     ax.set_title('extra mass @surface, piston out: %.1f g' \
                     %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
     #
+    y_annotation = ax.get_ylim()[1]-.1*(ax.get_ylim()[1]-ax.get_ylim()[0])
     ax.annotate('',
-                xy=(ax.get_xticks()[1], ax.get_ylim()[1]-10),
-                xytext=(ax.get_xticks()[2], ax.get_ylim()[1]-10),
+                xy=(ax.get_xticks()[1], y_annotation),
+                xytext=(ax.get_xticks()[2], y_annotation),
                 arrowprops=dict(arrowstyle="<->"))
     ax.text(ax.get_xticks()[1]*.5+ax.get_xticks()[2]*.5,
-            ax.get_ylim()[1]-10,
+            y_annotation,
             '%.1f g'%(f.V*(ax.get_xticks()[2]-ax.get_xticks()[1])*1e3),
             {'ha': 'center', 'va': 'bottom'})
+    #        ax.get_ylim()[1]-10,
     return ax
 
 #
