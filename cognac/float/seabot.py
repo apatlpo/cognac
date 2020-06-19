@@ -213,7 +213,7 @@ def get_depth_profile(df, threshold=.02, dz=.1):
     #
     df = df[dzdt>threshold] # ascending values only
     df['z'] = z
-    dzdt.plot(subplots=True)
+    #dzdt.plot(subplots=True)
     #
     z_rounded = np.round(z/dz).rename('bins')
     df = df.groupby(by=z_rounded).mean()
