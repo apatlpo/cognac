@@ -177,7 +177,7 @@ def _control_feedback2(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
 
 #------------------------------- kalman filter ---------------------------------
 
-class kalman(object):
+class kalman_core(object):
     ''' Kalman filter for float state estimation
     '''
 
@@ -195,11 +195,11 @@ class kalman(object):
             params['gamma'] = np.diag(params['gamma'])
         # dynamical noise covariance
         if 'sqrt' in params and params['sqrt']:
-            _alpha_scale = params['dt']
+            params['sqrt'] = np.sqrt(params['dt'])
         else:
-            _alpha_scale = params['dt']**2
+            params['sqrt'] = 1.
         if 'gamma_alpha_scaled' in params:
-            params['gamma_alpha'] = (_alpha_scale 
+            params['gamma_alpha'] = (params['dt']**2 
                                     * np.diag(params['gamma_alpha_scaled'])
                                     )
         elif 'gamma_alpha' in params:
@@ -210,13 +210,15 @@ class kalman(object):
         # set parameters as attributes
         for key,val in params.items():
             setattr(self,key,val)
-        # coefficients
+        # constant coefficients
         self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
 
     def __repr__(self):
         strout='Kalman filter: \n'
         strout+='  dt     = %.2f s     - filter time step\n'%(self.dt)
-        strout+='  x_hat   = [%.2e,%.2e,%.2e,%.2e] - kalman state \n'%tuple(self.x_hat)
+        strout+='  x_hat   = [' \
+                +', '.join(['{:.2e}'.format(_x) for _x in self.x_hat]) \
+                +'] - kalman state \n'
         strout+='  sqrt(diag(gamma)): '
         strout+=np.array2string(np.sqrt(np.diag(self.gamma)),
                                 formatter={'float_kind':lambda x: "%.2e" % x})
@@ -228,46 +230,41 @@ class kalman(object):
                                 formatter={'float_kind':lambda x: "%.2e" % x})
         return strout
 
-    def gen_obs(self, z):
-        # build observations
-        y_depth = -z \
-                 + np.random.normal(loc=0.0, scale=self.depth_error)
-        return [y_depth]
+    def init_x(self, *x_init):
+        """ Initialize state vector
+        """
+        self.x_hat = np.array(x_init)
+        self.Nx = self.x_hat.size
         
-    def update_A(self):
-        pass
+    def init_operators(self):
+        """ Initialize operators: linearized dynamics and observation
+        Only depth is observed here
+        """
+        self.A = np.eye(self.Nx)        
+        self.C = np.zeros((1,self.Nx))
+        self.C[0,1] = 1
 
-    def update_kalman(self, v, z):
+    def step(self, v, z):
         # update dynamical operator
         self.update_A()
+        # generate synthetic observations
         y = self.gen_obs(z)
         if self.verbose>0:
             print("x kalman", self.x_hat)
-        self.x_hat, self.gamma = self.step(self.x_hat,
-                                           self.gamma,
-                                           v,
-                                           y,
-                                           self.A
+        self.x_hat, self.gamma = self.core(self.x_hat, self.gamma,
+                                           v, y,
+                                           self.A, self.gamma_alpha,
+                                           self.C, self.gamma_beta
                                            )
-        if self.verbose>1:
-            print("x0 iteration", self.x_hat)
-            print('x_hat', self.x_hat)
-            print('z', z)
-            print('gamma', self.gamma)
 
-    def step(self, x0, gamma0, v, y, A):
-        xup, Gup = self.kalman_correc(x0, gamma0, y)
-        x1, gamma1 = self.kalman_predict(xup, Gup, v, A)
-        return x1, gamma1
+    def core(self, x0, gamma0, 
+             v, y, 
+             A, gamma_alpha, 
+             C, gamma_beta):
+        xup, Gup = self.correct(x0, gamma0, y, C, gamma_beta)
+        return self.predict(xup, Gup, v, A, gamma_alpha)
 
-    def kalman_predict(self, xup, Gup, v, A):
-        gamma1 = (A @ Gup @ A.T)
-        gamma1 += self.gamma_alpha
-        x1 = xup + self.f(xup, v)*self.dt
-        return x1, gamma1
-
-    def kalman_correc(self, x0, gamma0, y):
-        C = self.C
+    def correct(self, x0, gamma0, y, C, gamma_beta):
         S = C @ gamma0 @ C.T + self.gamma_beta
         K = gamma0 @ C.T @ np.linalg.inv(S)
         ytilde = np.array(y) - C @ x0
@@ -283,10 +280,34 @@ class kalman(object):
             print('ytilde', ytilde)
         return xup, Gup
 
-    def f(self, x, v):
-        return np.array(x)*0.
+    def predict(self, xup, Gup, v, A, gamma_alpha):
+        x1 = xup + self.f(xup, v)*self.dt
+        gamma1 = (A @ Gup @ A.T)
+        gamma1 += self.sqrt * gamma_alpha
+        return x1, gamma1
 
-class kalman_v0(kalman):
+    def gen_obs(self, z):
+        # build observations
+        y_depth = -z \
+                 + np.random.normal(loc=0.0, scale=self.depth_error)
+        return [y_depth]
+
+    def init_log(self, variables=[]):
+        self.log_variables =   ['x_%d'%i for i in range(self.Nx)] \
+                             + ['gamma_%d'%i for i in range(self.Nx)] \
+                             + ['dwdt', 'dwdt_diff'] \
+                             + variables
+
+    def get_log(self, t, v, dwdt):
+        _dwdt = -self.f(self.x_hat, v)[0]
+        out ={'time': t,
+              **{'x_%d'%i: self.x_hat[i] for i in range(self.Nx)},
+              **{'gamma_%d'%i: self.gamma[i,i] for i in range(self.Nx)},
+              'dwdt': _dwdt,
+              'dwdt_diff': dwdt - _dwdt}
+        return out
+
+class kalman_v0(kalman_core):
     ''' Kalman filter for float state estimation
     
     State variables are:
@@ -303,30 +324,26 @@ class kalman_v0(kalman):
                 'Kalmanf filter parameters should include: ' \
                 +', '.join(_required_params)
         # state vector
-        self.state_variables = ['speed', 'depth', 'gamma_e', 'V_e']
-        self.x_hat = np.array([-self.dzdt, -self.z, self.gamma_e0, self.V_e0])
-        #
-        # linearized dynamical operator
-        self.A = np.eye(4)
-        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
-        self.A += self.dt * \
-                 np.array([[-self.B_coeff*abs(self.x_hat[0]),
-                            self.A_coeff*self.x_hat[2],
-                            self.A_coeff*self.x_hat[1], -self.A_coeff],
-                           [1., 0., 0, 0],
-                           [0, 0, 0., 0],
-                           [0, 0, 0, 0.]])
-        # observation operator
-        self.C = np.array([[0, 1, 0, 0.]])
-        # log variables
-        self.log_variables = ['z','w', 'V_e', 'gamma_e', \
-                              'dwdt', 'dwdt_diff'] + \
-                              ['gamma_diag%d'%i for i in range(4)]
+        self.names = ['speed', 'depth', 'gamma_e', 'V_e']
+        self.init_x(-self.dzdt, 
+                    -self.z, 
+                    self.gamma_e0, 
+                    self.V_e0
+                    )
+        # useful constants:
+        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))        
+        # initialize operators
+        self.init_operators()
+        # initialize log variables
+        self.init_log(['z','w', 'V_e', 'gamma_e'])
 
     def update_A(self):
-        self.A[0,0] = 1 - self.dt*self.B_coeff*np.abs(self.x_hat[0])
-        self.A[0,1] = 1 + self.dt*self.A_coeff*self.x_hat[2]
-        self.A[0,2] = 1 + self.dt*self.A_coeff*self.x_hat[1]
+        x, dt, A, B = self.x_hat, self.dt, self.A_coeff, self.B_coeff
+        self.A[0,0] = 1 - dt*B*2.*abs(x[0])
+        self.A[0,1] = dt*A*x[2]
+        self.A[0,2] = dt*A*x[1]
+        self.A[0,3] = -dt*A
+        self.A[1,0] = dt
 
     def f(self, x, v):
         dx = np.array(x)
@@ -350,7 +367,7 @@ class kalman_v0(kalman):
               'dwdt_diff': dwdt - _dwdt}
         return out
 
-class kalman_v1(kalman):
+class kalman_v1(kalman_core):
     ''' Kalman filter for float state estimation
     
     State variables are:
@@ -363,60 +380,51 @@ class kalman_v1(kalman):
     '''
 
     def __init__(self, **params_in):
-        super().__init__(**params_in)
+        super().__init__(**params_in)        
         _required_params = ['c1', 'Lv', 'a']
         assert all([v in params_in for v in _required_params]), \
                 'Kalmanf filter parameters should include: ' \
                 +', '.join(_required_params)
         # state vector
-        self.state_variables = ['speed', 'depth', 'gamma_e', 'V_e']
-        self.x_hat = np.array([-self.dzdt, -self.z, self.gamma_e0, self.V_e0])
-        #
-        # linearized dynamical operator
-        self.A = np.eye(4)
-        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
-        self.A += self.dt * \
-                 np.array([[-self.B_coeff*abs(self.x_hat[0]),
-                            self.A_coeff*self.x_hat[2],
-                            self.A_coeff*self.x_hat[1], -self.A_coeff],
-                           [1., 0., 0, 0],
-                           [0, 0, 0., 0],
-                           [0, 0, 0, 0.]])
-        # observation operator
-        self.C = np.array([[0, 1, 0, 0.]])
-        # log variables
-        self.log_variables = ['z','w', 'V_e', 'gamma_e', \
-                              'dwdt', 'dwdt_diff'] + \
-                              ['gamma_diag%d'%i for i in range(4)]
+        self.names = ['velocity', 'depth', 'offset', 'chi', 'chi2', 'cz']
+        self.init_x(-self.dzdt, 
+                    -self.z, 
+                    self.V_e0,
+                    self.gamma_e0,
+                    0.,
+                    1.
+                    )
+        # useful constants:
+        #Cf = np.pi*(ph['diam_collerette']/2.)**2
+        #B = 0.5*ph['rho']*Cf/ph['m']
+        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))        
+        # initialize operators
+        self.init_operators()
+        # initialize log variables
+        self.init_log()
 
     def update_A(self):
-        self.A[0,0] = 1 - self.dt*self.B_coeff*np.abs(self.x_hat[0])
-        self.A[0,1] = 1 + self.dt*self.A_coeff*self.x_hat[2]
-        self.A[0,2] = 1 + self.dt*self.A_coeff*self.x_hat[1]
-
+        x, dt, A, B = self.x_hat, self.dt, self.A_coeff, self.B_coeff
+        self.A[0,0] = 1 - dt*2.*B*abs(x[0])*x[5]
+        self.A[0,1] = dt*A*(x[2]+2.*x[4]*x[1])
+        self.A[0,2] = -dt*A
+        self.A[0,3] = dt*A*x[1]
+        self.A[0,4] = dt*A*x[1]**2
+        self.A[0,5] = -B*abs(x[0])*x[0]
+        self.A[1,0] = dt
+        
     def f(self, x, v):
-        dx = np.array(x)
-        dx[0] = -self.A_coeff*(x[3] - x[2]*x[1] + v) \
-                -self.B_coeff*x[0]*np.abs(x[0])
+        dx = np.zeros_like(x)
+        dx[0] = -self.A_coeff*(v + x[2] - (x[3]*x[1]+x[4]*x[1]**2)) \
+                -self.B_coeff*x[5]*x[0]*np.abs(x[0])
         dx[1] = x[0]
         dx[2] = 0.0
         dx[3] = 0.0
+        dx[4] = 0.0
+        dx[5] = 0.0
         return dx
 
-    def get_log(self, t, v, dwdt):
-        _dwdt = -self.f(self.x_hat, v)[0]
-        out ={'time': t,
-              **{'x_%d'%i: self.x_hat[i] for i in range(4)},
-              **{'gamma_%d'%i: self.gamma[i,i] for i in range(4)},
-              'z': -self.x_hat[1], 
-              'w': -self.x_hat[0],
-              'V_e':self.x_hat[3], 
-              'gamma_e': self.x_hat[2],
-              'dwdt': _dwdt,
-              'dwdt_diff': dwdt - _dwdt}
-        return out
-
-class kalman_profile(kalman):
+class kalman_profile(kalman_core):
     ''' Kalman filter for float state estimation
     
     State variables are:
@@ -433,7 +441,7 @@ class kalman_profile(kalman):
                 'Kalmanf filter parameters should include: ' \
                 +', '.join(_required_params)
         # state vector
-        self.state_variables = ['speed', 'depth', 'gamma_e', 'V_e']
+        self.names = ['speed', 'depth', 'gamma_e', 'V_e']
         self.x_hat = np.array([-self.dzdt, -self.z, self.gamma_e0, self.V_e0])
         #
         # linearized dynamical operator

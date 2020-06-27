@@ -291,7 +291,7 @@ class kalman(object):
             self.gamma_alpha = self.gamma_alpha*np.sqrt(dt)
         self.tick_to_volume = tick_to_volume
         # state vector
-        self.x_names = ['velocity', 'depth', 'offset', 'chi', 'chi2', 'cz']
+        self.names = ['velocity', 'depth', 'offset', 'chi', 'chi2', 'cz']
         self.init_x(x_init)
         # linearized dynamical operator
         self.A = self.compute_A(self.x_hat)
@@ -306,9 +306,9 @@ class kalman(object):
     def simulate(self, df):
         """ run the kalman filter over observations
         """
-        out = pd.DataFrame(columns=self.x_names)
+        out = pd.DataFrame(columns=self.names)
         for i, d in df.iterrows():
-            self.update_kalman(-d['v'], y=d['depth'])
+            self.step(-d['v'], y=d['depth'])
             out.loc[i] = self.x_hat
         return out
     
@@ -334,14 +334,14 @@ class kalman(object):
         A += _A*self.dt
         return A
 
-    def update_kalman(self, v, z=None, y=None):
+    def step(self, v, z=None, y=None):
         # update arrays
         self.A = self.compute_A(self.x_hat)
         if y is None:
             y = self.gen_obs(z)
         if self.verbose>0:
             print("x kalman", self.x_hat)
-        (self.x_hat, self.gamma) = self.kalman(self.x_hat, self.gamma, v, y,
+        (self.x_hat, self.gamma) = self.core(self.x_hat, self.gamma, v, y,
                                                self.A)
         if self.verbose>1:
             print("x0 iteration", self.x_hat)
@@ -349,18 +349,18 @@ class kalman(object):
             print('z', z)
             print('gamma', self.gamma)
 
-    def kalman(self, x0, gamma0, v, y, A):
-        xup, Gup = self.kalman_correc(x0, gamma0, y)
-        x1, gamma1 = self.kalman_predict(xup, Gup, v, A)
+    def core(self, x0, gamma0, v, y, A):
+        xup, Gup = self.correct(x0, gamma0, y)
+        x1, gamma1 = self.predict(xup, Gup, v, A)
         return x1, gamma1
 
-    def kalman_predict(self, xup, Gup, v, A):
+    def predict(self, xup, Gup, v, A):
         gamma1 = (A @ Gup @ A.T)
         gamma1 += self.gamma_alpha
         x1 = xup + self.f(xup, v)*self.dt
         return x1, gamma1
 
-    def kalman_correc(self, x0, gamma0, y):
+    def correct(self, x0, gamma0, y):
         C = self.C
         S = C @ gamma0 @ C.T + self.gamma_beta
         K = gamma0 @ C.T @ np.linalg.inv(S)

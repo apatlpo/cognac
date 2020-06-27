@@ -165,26 +165,26 @@ def _plot_fill(k, t, i, ax, alpha):
                     facecolor='orange', alpha=alpha)
     ax.plot(t,k['x_%d'%i], color='r', label ="estimation")
 
-def plot_kalman(log, f, z_target=None, figsize=(10,6)):
+def plot_kalman(log, f, z_target=None, truth=None, figsize=(10,6)):
     alpha = 0.7
-    state, t = log['state'], log['state']['time']*sec2min
+    #state, t = log['state'], log['state']['time']*sec2min
     k, tk = log['kalman'], log['kalman']['time']*sec2min
+    if truth is not None:
+        tt = truth.reset_index()['time']*sec2min
     #
     N = f.kalman.x_hat.size
     cols = 2
     rows = int(np.ceil(N / cols))
     gs = gridspec.GridSpec(rows, cols)
     fig = plt.figure(figsize=figsize)
-    for i, name in enumerate(f.kalman.state_variables):
+    for i, name in enumerate(f.kalman.names):
         ax = fig.add_subplot(gs[i])
         _plot_fill(k, tk, i, ax, alpha)
-        if i==0:
-            ax.plot(t,-state['w'], color='k', label = "truth")
-        elif i==1:
-            ax.plot(t, -state['z'], color='k', label = "truth")
-            if z_target is not None:
-                ax.plot(t, -z_target(log['state']['time']),
-                        color='b', label='target')
+        if truth is not None:
+            ax.plot(tt, truth['x_%d'%i], color='k', label = "truth")
+        if i==1 and z_target:
+            ax.plot(tk, -z_target(log['kalman']['time']),
+                    color='b', label='target')
         ax.set_title(name)
         ax.grid()
         legend = ax.legend(loc='best', shadow=True, fontsize='medium')
@@ -198,9 +198,9 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     fig = plt.figure(figsize=(15,10))
     #
     ax=fig.add_subplot(231)
-    #ax.plot(tk, - k['gamma_diag1'])
-    ax.fill_between(tk, k['z'] - np.sqrt(k['gamma_diag0']),
-                        k['z'] + np.sqrt(k['gamma_diag0']),
+    #ax.plot(tk, - k['gamma_1'])
+    ax.fill_between(tk, k['z'] - np.sqrt(k['gamma_0']),
+                        k['z'] + np.sqrt(k['gamma_0']),
                     facecolor='orange', alpha=alpha)
     ax.plot(tk,k['z'], color='r', label ="estimated depth")
     ax.plot(t, state['z'], color='k', label = "real depth")
@@ -213,8 +213,8 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(232)
-    ax.fill_between(tk, k['w'] - np.sqrt(k['gamma_diag1']),
-                        k['w'] + np.sqrt(k['gamma_diag1']),
+    ax.fill_between(tk, k['w'] - np.sqrt(k['gamma_1']),
+                        k['w'] + np.sqrt(k['gamma_1']),
                     facecolor='orange', alpha=alpha)
     ax.plot(tk,k['w'], color='r', label ="estimated velocity")
     ax.plot(t,state['w'], color='k', label = "real velocity")
@@ -224,8 +224,8 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(234)
-    ax.fill_between(tk, (k['V_e'] - np.sqrt(k['gamma_diag3']))*1e6,
-                        (k['V_e'] + np.sqrt(k['gamma_diag3']))*1e6,
+    ax.fill_between(tk, (k['V_e'] - np.sqrt(k['gamma_3']))*1e6,
+                        (k['V_e'] + np.sqrt(k['gamma_3']))*1e6,
                     facecolor='orange', alpha=alpha)
     ax.plot(tk,k['V_e']*1e6, color='r', label ="estimated V_e volume")
     if V_e is not None:
@@ -239,8 +239,8 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(235)
-    ax.fill_between(tk, k['gamma_e'] - np.sqrt(k['gamma_diag2']),
-                        k['gamma_e'] + np.sqrt(k['gamma_diag2']),
+    ax.fill_between(tk, k['gamma_e'] - np.sqrt(k['gamma_2']),
+                        k['gamma_e'] + np.sqrt(k['gamma_2']),
                     facecolor='orange', alpha=alpha)
     ax.plot(tk,k['gamma_e'], color='r',
             label ="estimated equivalent compressibility")

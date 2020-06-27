@@ -406,7 +406,7 @@ class autonomous_float():
             #
             # update kalman state estimation
             if kalman and t_modulo_dt(t, self.kalman.dt, dt_step):
-                self.kalman.update_kalman(self.v, self.z)
+                self.kalman.step(self.v, self.z)
             #
             # control starts here
             if ctrl:
