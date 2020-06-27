@@ -10,7 +10,7 @@ from pprint import pformat
 import gsw
 
 from .log import *
-from .regulation import control, kalman_filter
+from .regulation import *
 
 # useful parameters
 g=9.81
@@ -362,9 +362,7 @@ class autonomous_float():
         # kalman initialisation
         if kalman:
             self.init_kalman(kalman, self.w, self.z, verbose)
-            _log['kalman'] = ['z','w', 'V_e', 'gamma_e', \
-                              'dwdt', 'dwdt_diff'] + \
-                              ['gamma_diag%d'%i for i in range(4)]
+            _log['kalman'] = self.kalman.log_variables
             print(self.kalman)
         #
         if ctrl:
@@ -437,31 +435,24 @@ class autonomous_float():
             #
             # log data
             if _log_now:
-                self.log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
-                                        dwdt=_force/(1+self.a)/self.m,
-                                        w_temp=self.w_tempw,
-                                        w_rho=self.w_rhow)
-                self.log['dynamics'].store(time=t,
-                                           acceleration=_force/(1+self.a)/self.m,
-                                           buoyancy=_force_b/(1+self.a)/self.m,
-                                           drag=_force_d/(1+self.a)/self.m,
-                                           )
+                _log = self.log
+                _log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
+                                    dwdt=_force/(1+self.a)/self.m,
+                                    w_temp=self.w_tempw,
+                                    w_rho=self.w_rhow)
+                _log['dynamics'].store(time=t,
+                                       acceleration=_force/(1+self.a)/self.m,
+                                       buoyancy=_force_b/(1+self.a)/self.m,
+                                       drag=_force_d/(1+self.a)/self.m,
+                                       )
                 if ctrl:
                     _info = {'time': t, 'u': u, 'work': self.piston_work}
-                    self.log['piston'].store(**_info)
+                    _log['piston'].store(**_info)
                 if kalman:
-                    _k = self.kalman
-                    _dwdt = _k.A_coeff*(_k.x_hat[3] \
-                                        -_k.x_hat[2]*_k.x_hat[1] \
-                                        + self.v) \
-                            +_k.B_coeff*_k.x_hat[0]*np.abs(_k.x_hat[0])
                     #
-                    self.log['kalman'].store(time=t,
-                               z=_k.x_hat[1], w=_k.x_hat[0],
-                               V_e=_k.x_hat[3], gamma_e=_k.x_hat[2],
-                               **{'gamma_diag%d'%i: _k.gamma[i,i] for i in range(4)},
-                               dwdt=_dwdt,
-                               dwdt_diff=_force/(1+self.a)/self.m - _dwdt)
+                    _dwdt = _force/(1+self.a)/self.m
+                    _klog = self.kalman.get_log(t, self.v, _dwdt)
+                    _log['kalman'].store(**_klog)
             #
             # update variables
             self.z += dt_step*self.w
@@ -543,14 +534,15 @@ class autonomous_float():
         return u
 
     def init_kalman(self, kalman, w, z, verbose):
-        _params = {'m': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
+        _params = {'version': 'v0',
+                   'm': self.m, 'a':self.a, 'rho_cte': self.rho_cte,
+                   'dzdt': w, 'z': z, 
                    'c1':self.c1, 'Lv': self.L,
                    'gamma_e0': self.gammaV, 'V_e0': 0.,
                    'verbose': verbose}
         if type(kalman) is dict:
             _params.update(kalman)
-        _x0 = [-w, -z, _params['gamma_e0'], _params['V_e0']]
-        self.kalman = kalman_filter(_x0, **_params)
+        self.kalman = eval('kalman_' +_params['version'])(**_params)
 
     def plot_logs(self, **kwargs):
         ''' wrapper around plot_logs

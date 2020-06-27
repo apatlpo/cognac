@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+from matplotlib import gridspec
 
 from bokeh.io import output_notebook, show
 from bokeh.layouts import gridplot
@@ -9,7 +10,7 @@ from bokeh.models import ColumnDataSource, HoverTool
 from bokeh.plotting import figure
 from bokeh.palettes import Category10 as palette
 
-s2m = 1./60.
+sec2min = 1./60.
 
 class logger():
     ''' Store a log of the float trajectory
@@ -84,11 +85,11 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     state = log['state']
     t = state['time']
     ax = plt.subplot(321)
-    ax.plot(t *s2m, state['z'], color='k', label='z')
+    ax.plot(t *sec2min, state['z'], color='k', label='z')
     if z_target is not None:
-        ax.plot(t *s2m, z_target(t), color='b', label='target')
+        ax.plot(t *sec2min, z_target(t), color='b', label='target')
         if eta is not None:
-            ax.plot(t *s2m, z_target(t) + eta(t), color='green', label='target+eta')
+            ax.plot(t *sec2min, z_target(t) + eta(t), color='green', label='target+eta')
     ax.legend(loc=0)
     ax.set_ylabel('z [m]')
     if title is not None:
@@ -99,10 +100,10 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     if z_target is not None:
         if hasattr(f, 'ctrl'):
             # (x,y) # width # height
-            ax.fill_between(t *s2m, t * 0. - f.ctrl.dz_nochattering,
+            ax.fill_between(t *sec2min, t * 0. - f.ctrl.dz_nochattering,
                             t * 0. + f.ctrl.dz_nochattering,
                             facecolor='orange', alpha=.5)
-        ax.plot(t *s2m, state['z'].values - z_target(t), \
+        ax.plot(t *sec2min, state['z'].values - z_target(t), \
                 color='k', label='z-ztarget')
         ax.legend()
         ax.set_ylabel('[m]')
@@ -114,13 +115,13 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         ax.yaxis.tick_right()
     #
     ax = plt.subplot(323, sharex=ax)
-    ax.plot(t *s2m, state['w'] * 1.e2, color='k', label='dzdt')
+    ax.plot(t *sec2min, state['w'] * 1.e2, color='k', label='dzdt')
     ax.legend()
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
     ax = plt.subplot(324)
-    ax.plot(t *s2m, state['v'] * 1.e6, '-', color='k', label='v')
+    ax.plot(t *sec2min, state['v'] * 1.e6, '-', color='k', label='v')
     # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
     ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='0.5')
     ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='0.5')
@@ -131,7 +132,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     ax.yaxis.tick_right()
     #
     ax = plt.subplot(325, sharex=ax)
-    ax.plot(t *s2m, state['dwdt'], color='k', label='d2zdt2')
+    ax.plot(t *sec2min, state['dwdt'], color='k', label='d2zdt2')
     ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
@@ -142,7 +143,7 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         t = piston['time']
         #
         ax = plt.subplot(326, sharex=ax)
-        ax.plot(t *s2m, piston['work'], color='k', label='piston work')
+        ax.plot(t *sec2min, piston['work'], color='k', label='piston work')
         ax.legend()
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
@@ -156,19 +157,52 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day' \
               %( nrg*86400, nrg*86400*30. ))
 
-def plot_kalman(log, f, V_e=None, gamma_e=None, z_target=None):
+# ------------------------- kalman specific plots ------------------------------
+
+def _plot_fill(k, t, i, ax, alpha):
+    ax.fill_between(t, k['x_%d'%i] - np.sqrt(k['gamma_%d'%i]),
+                        k['x_%d'%i] + np.sqrt(k['gamma_%d'%i]),
+                    facecolor='orange', alpha=alpha)
+    ax.plot(t,k['x_%d'%i], color='r', label ="estimation")
+
+def plot_kalman(log, f, z_target=None, figsize=(10,6)):
     alpha = 0.7
-    state, t = log['state'], log['state']['time']*s2m
-    k, tk = log['kalman'], log['kalman']['time']*s2m
+    state, t = log['state'], log['state']['time']*sec2min
+    k, tk = log['kalman'], log['kalman']['time']*sec2min
+    #
+    N = f.kalman.x_hat.size
+    cols = 2
+    rows = int(np.ceil(N / cols))
+    gs = gridspec.GridSpec(rows, cols)
+    fig = plt.figure(figsize=figsize)
+    for i, name in enumerate(f.kalman.state_variables):
+        ax = fig.add_subplot(gs[i])
+        _plot_fill(k, tk, i, ax, alpha)
+        if i==0:
+            ax.plot(t,-state['w'], color='k', label = "truth")
+        elif i==1:
+            ax.plot(t, -state['z'], color='k', label = "truth")
+            if z_target is not None:
+                ax.plot(t, -z_target(log['state']['time']),
+                        color='b', label='target')
+        ax.set_title(name)
+        ax.grid()
+        legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+    fig.tight_layout()  
+
+def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
+    alpha = 0.7
+    state, t = log['state'], log['state']['time']*sec2min
+    k, tk = log['kalman'], log['kalman']['time']*sec2min
     #
     fig = plt.figure(figsize=(15,10))
     #
     ax=fig.add_subplot(231)
     #ax.plot(tk, - k['gamma_diag1'])
-    ax.fill_between(tk, -k['z'] - np.sqrt(k['gamma_diag0']),
-                        -k['z'] + np.sqrt(k['gamma_diag0']),
+    ax.fill_between(tk, k['z'] - np.sqrt(k['gamma_diag0']),
+                        k['z'] + np.sqrt(k['gamma_diag0']),
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,-k['z'], color='r', label ="estimated depth")
+    ax.plot(tk,k['z'], color='r', label ="estimated depth")
     ax.plot(t, state['z'], color='k', label = "real depth")
     if z_target is not None:
         ax.plot(t, z_target(log['state']['time']),
@@ -179,10 +213,10 @@ def plot_kalman(log, f, V_e=None, gamma_e=None, z_target=None):
     legend = ax.legend(loc='best', shadow=True, fontsize='medium')
     #
     ax=fig.add_subplot(232)
-    ax.fill_between(tk, -k['w'] - np.sqrt(k['gamma_diag1']),
-                        -k['w'] + np.sqrt(k['gamma_diag1']),
+    ax.fill_between(tk, k['w'] - np.sqrt(k['gamma_diag1']),
+                        k['w'] + np.sqrt(k['gamma_diag1']),
                     facecolor='orange', alpha=alpha)
-    ax.plot(tk,-k['w'], color='r', label ="estimated velocity")
+    ax.plot(tk,k['w'], color='r', label ="estimated velocity")
     ax.plot(t,state['w'], color='k', label = "real velocity")
     ax.set_title("velocity [m/s]")
     #ax.set_xlabel("t (min)")
