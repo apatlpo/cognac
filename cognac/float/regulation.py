@@ -11,12 +11,16 @@ class control(object):
         for key, item in kwargs.items():
             setattr(self, key, item)
         if not hasattr(self, 'continuous'):
-            self.continuous = True
-        if 'feedback' in self.mode:
+            self.continuous = False
+        if 'feedback1' in self.mode:
+            self.lbd1 = 1./self.tau
+            self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
+            self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
+        elif 'feedback2' in self.mode:
             self.lbd1 = 2/self.tau
             self.lbd2 = 1/self.tau**2
-            self._A = g*self.rho_cte/((self.a+1)*self.m)
-            self._B = self.c1/(2*self.Lv*(1+self.a))
+            self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
+            self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
 
     def __repr__(self):
         _core_params = ['dt', 'dz_nochattering', 'tau', 'nu', 'delta',
@@ -64,26 +68,45 @@ class control(object):
             + self.Kd*self.derivative
         return u
 
-    def get_u_feedback1(self, z_target, t, z, w, V, gamma, log):
+    def get_u_feedback1(self, z_target, t, z, w, V, 
+                        gamma, log
+                        ):
         u = _control_feedback1(self.lbd1, self.nu, self.delta,
                               z, w, z_target(t), V, gamma,
-                              self._A, self._B)
+                              self.A_coeff, self.B_coeff)
         if log:
             self.log.store(time=t, u=sum(u),\
                            **{'u%d'%i: u[i] for i in range(len(u))})
         return sum(u)
 
-    def get_u_feedback2(self, z_target, t, z, w, dwdt, gamma, log):
-        u = _control_feedback2(self.lbd1, self.lbd2, self.nu, self.delta,
-                              z, w, dwdt, z_target(t), gamma,
-                              self._A, self._B)
+    def get_u_feedback2(self, z_target, t, z, w, dwdt, 
+                        gamma1, log, 
+                        gamma2=0., c1=1.
+                        ):
+        u = _control_feedback2(self.lbd1, self.lbd2, 
+                               self.nu, self.delta,
+                               z, w, dwdt, 
+                               z_target(t), 
+                               gamma1,
+                               gamma2,
+                               c1,
+                               self.A_coeff, 
+                               self.B_coeff
+                               )
         if log:
             self.log.store(time=t, u=sum(u),\
                            **{'u%d'%i: u[i] for i in range(len(u))})
         return sum(u)
 
-def _control_feedback1(lbd1, nu, delta, z, dz, z_t, V, gamma,
-                      A, B):
+def _control_feedback1(lbd1, 
+                       nu, delta, 
+                       z, dz, 
+                       z_t, 
+                       V, 
+                       gamma,
+                       A, 
+                       B,
+                       ):
     ''' Control feedback of the float position
     Parameters
     ----------
@@ -111,19 +134,31 @@ def _control_feedback1(lbd1, nu, delta, z, dz, z_t, V, gamma,
     x0 = -dz
     x1 = -z
     x1bar = -z_t
+    x2 = gamma
+    x3 = V
     #
     e = x1bar - x1
     D = 1 + e**2/delta**2
     #
     y = x0 - nu*np.arctan(e/delta)
     #
-    return (1/A)*lbd1*y, \
-            (1/A)*nu/delta*x0/D, \
-            -(1/A)*2*B*np.abs(x0)*x0, \
-            -V, gamma*x0
+    return ((1/A)*lbd1*y, 
+            (1/A)*nu/delta*x0/D, 
+            -(1/A)*B*np.abs(x0)*x0,
+            -x3,
+            x2*x1
+           )
 
-def _control_feedback2(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
-                      A, B):
+def _control_feedback2(lbd1, lbd2,
+                       nu, delta,
+                       z, dz, d2z,
+                       z_t,
+                       gamma1,
+                       gamma2,
+                       c1,
+                       A,
+                       B,
+                       ):
     ''' Control feedback of the float position
     Parameters
     ----------
@@ -162,17 +197,12 @@ def _control_feedback2(lbd1, lbd2, nu, delta, z, dz, d2z, z_t, gamma,
     y = x0 - nu*np.arctan(e/delta)
     dy = dx0 + nu*x0/(delta*D)
     #
-    if x0 > 0:
-        _sign = 1.
-    else:
-        _sign = -1.
-    return (1/A)*lbd1*dy, (1/A)*lbd2*y, \
-            (1/A)*nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2), \
-            (1/A)*_sign*2*B*x0*dx0, gamma*x0
-
-#    return (1/A)*(lbd1*dy + lbd2*y\
-#               + nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2)\
-#               + _sign*2*B*x0*dx0) + gamma*x0
+    return ((1/A)*lbd1*dy, 
+            (1/A)*lbd2*y,
+            (1/A)*nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2),
+            (1/A)*2*B*c1*abs(x0)*dx0, 
+            gamma1*x0+gamma1*x0**2,
+           )
 
 
 #------------------------------- kalman filter ---------------------------------
@@ -183,16 +213,17 @@ class kalman_core(object):
 
     def __init__(self, **params_in):
         # check if mandatory parameters are here
-        _required_params = ['m','a','rho_cte']
+        _required_params = ['m','a','rho_cte',
+                            'x_init', 'gamma_init',
+                            ]
         assert all([v in params_in for v in _required_params]), \
-                'Kalmanf filter parameters should include: ' \
+                'Kalman filter parameters should include: ' \
                 +', '.join(_required_params)
         #
         params = {'dt': 1., 'depth_error': 1e-3, 'verbose': 0}
         params.update(params_in)
         # initial state covariance
-        if 'gamma' in params:
-            params['gamma'] = np.diag(params['gamma'])
+        params['gamma'] = np.diag(params['gamma_init'])
         # dynamical noise covariance
         if 'sqrt' in params and params['sqrt']:
             params['sqrt'] = np.sqrt(params['dt'])
@@ -212,6 +243,9 @@ class kalman_core(object):
             setattr(self,key,val)
         # constant coefficients
         self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
+        # init x and operators
+        self.init_x()
+        self.init_operators()
 
     def __repr__(self):
         strout='Kalman filter: \n'
@@ -230,10 +264,10 @@ class kalman_core(object):
                                 formatter={'float_kind':lambda x: "%.2e" % x})
         return strout
 
-    def init_x(self, *x_init):
+    def init_x(self):
         """ Initialize state vector
         """
-        self.x_hat = np.array(x_init)
+        self.x_hat = np.array(self.x_init)
         self.Nx = self.x_hat.size
         
     def init_operators(self):
@@ -321,19 +355,12 @@ class kalman_v0(kalman_core):
         super().__init__(**params_in)        
         _required_params = ['c1', 'Lv', 'a']
         assert all([v in params_in for v in _required_params]), \
-                'Kalmanf filter parameters should include: ' \
+                'Kalman filter parameters should include: ' \
                 +', '.join(_required_params)
         # state vector
         self.names = ['speed', 'depth', 'gamma_e', 'V_e']
-        self.init_x(-self.dzdt, 
-                    -self.z, 
-                    self.gamma_e0, 
-                    self.V_e0
-                    )
         # useful constants:
         self.B_coeff = self.c1/(2*self.Lv*(1+self.a))        
-        # initialize operators
-        self.init_operators()
         # initialize log variables
         self.init_log(['z','w', 'V_e', 'gamma_e'])
 
@@ -383,25 +410,46 @@ class kalman_v1(kalman_core):
         super().__init__(**params_in)        
         _required_params = ['c1', 'Lv', 'a']
         assert all([v in params_in for v in _required_params]), \
-                'Kalmanf filter parameters should include: ' \
+                'Kalman filter parameters should include: ' \
                 +', '.join(_required_params)
         # state vector
         self.names = ['velocity', 'depth', 'offset', 'chi', 'chi2', 'cz']
-        self.init_x(-self.dzdt, 
-                    -self.z, 
-                    self.V_e0,
-                    self.gamma_e0,
-                    0.,
-                    1.
-                    )
         # useful constants:
         #Cf = np.pi*(ph['diam_collerette']/2.)**2
-        #B = 0.5*ph['rho']*Cf/ph['m']
-        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))        
-        # initialize operators
-        self.init_operators()
+        #B = 0.5*ph['rho']*Cf/ph['m'] = 0.5 m pi rc^2 / (pi r^2 L) /m = 0.5 (rc/r)^2 /L
+        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
+        # 
         # initialize log variables
         self.init_log()
+    
+    def to_seabot(self, f):
+        """ Return parameters as scaled for seabot
+        Could do a from_seabot ...
+        """
+        tick_to_volume = f.piston.vol_increment
+        #
+        _sqrt = 1. if self.sqrt else np.sqrt(self.dt)
+        _d = np.sqrt(np.diag(self.gamma_alpha/_sqrt))
+        print(' gamma_alpha_velocity: {:.2e}'.format(_d[0]))
+        print(' gamma_alpha_depth: {:.2e}'.format(_d[1]))
+        print(' gamma_alpha_offset: {:.2e}'.format(_d[2]/tick_to_volume))
+        print(' gamma_alpha_chi: {:.2e}'.format(_d[3]/tick_to_volume))
+        print(' gamma_alpha_chi2: {:.2e}'.format(_d[4]/tick_to_volume))
+        print(' gamma_alpha_cz: {}'.format(_d[5]))
+        #
+        _d = np.sqrt(self.gamma_init)
+        print(' gamma_init_velocity: {:.2e}'.format(_d[0]))
+        print(' gamma_init_depth: {:.2e}'.format(_d[1]))
+        print(' gamma_init_offset: {:.2e}'.format(_d[2]/tick_to_volume))
+        print(' gamma_init_chi: {:.2e}'.format(_d[3]/tick_to_volume))
+        print(' gamma_init_chi2: {:.2e}'.format(_d[4]/tick_to_volume))
+        print(' gamma_init_cz: {:.2e}'.format(_d[5]))
+        #
+        _d = np.sqrt(self.gamma_beta[0])
+        print(' gamma_beta_depth: {:.2e}'.format(_d[0]))
+        #
+        print(' init_chi: {:.2e}'.format(self.x_init[3]/tick_to_volume))
+        print(' init_chi2: {:.2e}'.format(self.x_init[4]/tick_to_volume))
 
     def update_A(self):
         x, dt, A, B = self.x_hat, self.dt, self.A_coeff, self.B_coeff

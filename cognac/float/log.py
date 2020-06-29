@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 from matplotlib import gridspec
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
 
 from bokeh.io import output_notebook, show
 from bokeh.layouts import gridplot
@@ -63,48 +65,119 @@ class logger():
         ax = self._df.set_index('time').plot(**_dkwargs)
         return ax
 
-    def plot_bk(self):
-
-        _d = self._df
+    def plot_bk(self, gridded=True, size=None):
+        """ Bokeh (dynamic) plot of the log
+        """
+        if size:
+            width, height = size
+        elif gridded:
+            width, height = (400, 200)
+        else:
+            width, height = (600, 400)
 
         output_notebook()
         TOOLS = 'pan,wheel_zoom,box_zoom,reset,help'
         colors = palette[10]
-        
-        s1 = figure(tools=TOOLS, plot_width=600, plot_height=300, title=None)
-        iters = ((_d[c],c) for c in _d.columns if c is not 'time')
-        for c, col in zip(iters, colors):
-            s1.line(_d['time']/60, c[0], legend=c[1], color=col, line_width=3)
-        show(s1)
+
+        _d = self._df
+                
+        if gridded:
+            col = 'black'
+            def bfig(c, x_range):
+                s = figure(tools=TOOLS, 
+                           plot_width=width, 
+                           plot_height=height,
+                           title=c, 
+                           x_range=x_range)
+                s.line(_d['time']/60, _d[c], legend=c, 
+                       color=col, line_width=3)
+                return s
+            c0 = next(c for c in _d.columns if c is not 'time')
+            s = [bfig(c0, None)]
+            s = s+[bfig(c, s[0].x_range) for c in _d.columns 
+                   if c not in ['time', c0]]
+            grid = gridplot(s, ncols=2)
+            show(grid)
+        else:
+            s1 = figure(tools=TOOLS,
+                        plot_width=width,
+                        plot_height=height,
+                        title=None)
+            iters = ((_d[c],c) for c in _d.columns if c is not 'time')
+            for c, col in zip(iters, colors):
+                s1.line(_d['time']/60, c[0], legend=c[1], 
+                        color=col, line_width=3)
+            show(s1)
 
 #
-def plot_logs(log, f, z_target=None, eta=None, title=None):
+def plot_logs(logs,
+              f,
+              z_target=None,
+              eta=None,
+              title=None,
+              figsize=(12, 10)
+              ):
+    """ Standard plot of a deployment
+    
+    Parameters:
+    -----------
+    logs: logger, dict
+        logs to plot, a dict of multiple logs may be passed
+    f: autonomous_float
+    z_target: lambda, optional
+        trajectory prescribed
+    eta: lambda, optional
+        isopycnal displacements
+    title: str, optional
+    figsize: tuple
+    """
+    if isinstance(logs, dict) and 'state' not in logs:
+        cols = get_cmap_colors(len(logs), cmap='plasma')
+        def _plot(ax, log, variable, name, scale=1., offset=0.):
+            for key, c in zip(logs, cols):
+                t, _log = logs[key][log]['time'], logs[key][log]
+                ax.plot(t *sec2min, _log[variable]*scale + offset, 
+                        color=c, 
+                        label=name+' '+key)
+        key = list(logs)[0]
+        log0 = logs[key]
+    else:
+        cols = 'k'
+        def _plot(ax, log, variable, name, scale=1., offset=0.):
+            t, _log = logs[log]['time'], logs[log]
+            ax.plot(t *sec2min, _log[variable]*scale + offset, 
+                    color=cols, 
+                    label=name)
+        log0 = logs
+    t = log0['state']['time']
     #
-    plt.figure(figsize=(12, 10))
+    fig, axes = plt.subplots(nrows=3,ncols=2, sharex=True, figsize=figsize)
     #
-    state = log['state']
-    t = state['time']
-    ax = plt.subplot(321)
-    ax.plot(t *sec2min, state['z'], color='k', label='z')
+    ax = axes[0,0]
+    _plot(ax, 'state', 'z', 'z')
     if z_target is not None:
         ax.plot(t *sec2min, z_target(t), color='b', label='target')
         if eta is not None:
-            ax.plot(t *sec2min, z_target(t) + eta(t), color='green', label='target+eta')
+            ax.plot(t *sec2min, z_target(t) + eta(t), 
+                    color='green', label='target+eta')
     ax.legend(loc=0)
     ax.set_ylabel('z [m]')
     if title is not None:
         ax.set_title(title)
     ax.grid()
     #
-    ax = plt.subplot(322)
+    ax = axes[0,1]
     if z_target is not None:
         if hasattr(f, 'ctrl'):
             # (x,y) # width # height
             ax.fill_between(t *sec2min, t * 0. - f.ctrl.dz_nochattering,
                             t * 0. + f.ctrl.dz_nochattering,
                             facecolor='orange', alpha=.5)
-        ax.plot(t *sec2min, state['z'].values - z_target(t), \
-                color='k', label='z-ztarget')
+        #
+        if eta is not None:
+            ax.plot(t *sec2min, z_target(t) + eta(t), 
+                    color='green', label='target+eta')
+        _plot(ax, 'state', 'z', 'z', offset=-z_target(t))
         ax.legend()
         ax.set_ylabel('[m]')
         ax.set_ylim([-2., 2.])
@@ -112,17 +185,16 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
             ax.set_title(title)
         ax.grid()
         ax.yaxis.set_label_position('right')
-        ax.yaxis.tick_right()
+        ax.yaxis.tick_right()        
     #
-    ax = plt.subplot(323, sharex=ax)
-    ax.plot(t *sec2min, state['w'] * 1.e2, color='k', label='dzdt')
+    ax = axes[1,0]
+    _plot(ax, 'state', 'w', 'dzdt', scale=1e2)
     ax.legend()
     ax.set_ylabel('[cm/s]')
     ax.grid()
     #
-    ax = plt.subplot(324)
-    ax.plot(t *sec2min, state['v'] * 1.e6, '-', color='k', label='v')
-    # ax.axhline(f.piston.dv*1.e6,ls='--',color='k')
+    ax = axes[1,1]
+    _plot(ax, 'state', 'v', 'v', scale=1e6)    
     ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='0.5')
     ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='0.5')
     ax.legend()
@@ -131,19 +203,17 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
     ax.yaxis.set_label_position('right')
     ax.yaxis.tick_right()
     #
-    ax = plt.subplot(325, sharex=ax)
-    ax.plot(t *sec2min, state['dwdt'], color='k', label='d2zdt2')
+    ax = axes[2,0]
+    _plot(ax, 'state', 'dwdt', 'd2zdt2')
     ax.legend()
     ax.set_xlabel('t [min]')
     ax.set_ylabel('[m/s^2]')
     ax.grid()
     #
-    if 'piston' in log:
-        piston = log['piston']
-        t = piston['time']
+    if 'piston' in log0:
         #
-        ax = plt.subplot(326, sharex=ax)
-        ax.plot(t *sec2min, piston['work'], color='k', label='piston work')
+        ax = axes[2,1]
+        _plot(ax, 'piston', 'work', 'piston work')
         ax.legend()
         ax.set_xlabel('t [min]')
         ax.set_ylabel('[Wh]')
@@ -152,6 +222,8 @@ def plot_logs(log, f, z_target=None, eta=None, title=None):
         ax.yaxis.tick_right()
         #
         # extrapolate to a 30d long simulation
+        piston = log0['piston']
+        t = piston['time']
         nrg = (piston['work'].iloc[-1]-piston['work'].iloc[0]) \
                 /(t.iloc[-1]-t.iloc[0])
         print( 'Extrapolated energy conssumption: %.1e Wh/day = %.1f Wh/30day' \
@@ -273,3 +345,17 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     ax.set_xlabel("t (min)")
     ax.grid()
     #legend = ax.legend(loc='best', shadow=True, fontsize='medium')
+
+def get_cmap_colors(Nc, cmap='plasma'):
+    """ load colors from a colormap to plot lines
+    
+    Parameters
+    ----------
+    Nc: int
+        Number of colors to select
+    cmap: str, optional
+        Colormap to pick color from (default: 'plasma')
+    """
+    scalarMap = cmx.ScalarMappable(norm=colors.Normalize(vmin=0, vmax=Nc),
+                                   cmap=cmap)
+    return [scalarMap.to_rgba(i) for i in range(Nc)]

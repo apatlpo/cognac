@@ -147,17 +147,23 @@ class waterp():
             print('No map to show')
 
     def __repr__(self):
-        plt.figure(figsize=(7,5))
-        ax = plt.subplot(121)
+        plt.figure(figsize=(9,5))
+        ax = plt.subplot(131)
         ax.plot(self.get_temp(self.z),self.z,'k')
         ax.set_ylabel('z [m]')
         ax.set_title('in situ temperature [degC]')
         plt.grid()
-        ax = plt.subplot(122)
+        #
+        ax = plt.subplot(132)
         ax.plot(self.get_s(self.z),self.z,'k')
         ax.set_yticklabels([])
-        #ax.set_ylabel('z [m]')
         ax.set_title('practical salinity [psu]')
+        plt.grid()
+        #
+        ax = plt.subplot(133)
+        ax.plot(self.get_rho(self.z),self.z,'k')
+        ax.set_yticklabels([])
+        ax.set_title('density [kg/m3]')
         plt.grid()
         return self.name
 
