@@ -3,6 +3,8 @@ import numpy as np
 # useful parameters
 g=9.81
 
+from .seabot import load_config, load_config_from_log, get_kf_parameters
+
 #------------------------------- controls --------------------------------------
 
 class control(object):
@@ -229,12 +231,12 @@ class kalman_core(object):
             params['sqrt'] = np.sqrt(params['dt'])
         else:
             params['sqrt'] = 1.
-        if 'gamma_alpha_scaled' in params:
+        if 'gamma_alpha' in params:
+            params['gamma_alpha'] = np.diag(params['gamma_alpha'])
+        elif 'gamma_alpha_scaled' in params:
             params['gamma_alpha'] = (params['dt']**2 
                                     * np.diag(params['gamma_alpha_scaled'])
                                     )
-        elif 'gamma_alpha' in params:
-            params['gamma_alpha'] = np.diag(params['gamma_alpha'])
         # observation noise covariance
         if 'gamma_beta' not in params:
             params['gamma_beta'] = np.diag([params['depth_error']**2])
@@ -450,7 +452,78 @@ class kalman_v1(kalman_core):
         #
         print(' init_chi: {:.2e}'.format(self.x_init[3]/tick_to_volume))
         print(' init_chi2: {:.2e}'.format(self.x_init[4]/tick_to_volume))
+        
+    def compare_with_seabot(self, f, cfg=None, log=None, update=False):
+        """ Read seabot config parameters and update kalman filter
+        """
+        tick_to_volume = f.piston.vol_increment
+        
+        assert any([cfg, log]), 'A path to a config or a log file is needed'
+        if cfg:
+            cfg = load_config(file)
+        elif log:
+            cfg = load_config_from_log(log)
 
+        # compare frequencies:
+        dt_seabot = 1./cfg['kalman']['frequency']
+        print('dt: {:3.3e}s vs {:3.3e}s (seabot)'.format(self.dt, dt_seabot) )
+
+        # compare A, B parameters
+        ph = cfg['physics']
+        A = ph['g']*ph['rho']/ph['m']
+        Cf = np.pi*(ph['diam_collerette']/2.)**2
+        B = 0.5*ph['rho']*Cf/ph['m']
+        print('A_coeff: {:3.3e} vs {:3.3e} (seabot)'.format(self.A_coeff, A) )
+        print('B_coeff: {:3.3e} vs {:3.3e} (seabot)'.format(self.B_coeff, B) )
+        
+        # compare covariances
+        gamma_alpha, gamma_init, gamma_beta = get_kf_parameters(
+                                        cfg, 
+                                        tick_to_volume, 
+                                        dt_seabot
+                                        )
+        print('gamma_alpha         : '
+                +' ,'.join(['{:2.2e}'.format(g) for g 
+                                    in np.diag(self.gamma_alpha)]))
+        print('gamma_alpha (seabot): '
+                +' ,'.join(['{:2.2e}'.format(g) for g in gamma_alpha]))
+        print('gamma_init          : '
+                +' ,'.join(['{:2.2e}'.format(g) for g in self.gamma_init]))
+        print('gamma_init (seabot) : '
+                +' ,'.join(['{:2.2e}'.format(g) for g in gamma_init]))
+        print('gamma_beta          : {:2.2e}'.format(float(self.gamma_beta)))
+        print('gamma_beta (seabot) : {:2.2e}'.format(float(gamma_beta)))
+
+        # update covariances
+        if update:
+            print('Update kalman filter with seabot values')
+            self.gamma_alpha = np.diag(gamma_alpha)
+            self.gamma_init = np.diag(gamma_init)
+            self.gamma_beta = np.diag([gamma_beta])
+
+        # print in terms of seabot inputs
+        print('--- in terms of seabot input parameters (with corresponding dt):')
+        _g_alpha, _g_init, _g_beta = _seabot_input_convert(tick_to_volume, 
+                                                           self.gamma_alpha, 
+                                                           self.gamma_init, 
+                                                           self.gamma_beta, 
+                                                           self.dt)
+        _g_alpha_sb, _g_init_sb, _g_beta_sb = _seabot_input_convert(tick_to_volume, 
+                                                                    gamma_alpha, 
+                                                                    gamma_init, 
+                                                                    gamma_beta, 
+                                                                    dt_seabot)
+        print('gamma_alpha         : '
+                +' ,'.join(['{:2.2e}'.format(g) for g in _g_alpha]))
+        print('gamma_alpha (seabot): '
+                +' ,'.join(['{:2.2e}'.format(g) for g in _g_alpha_sb]))
+        print('gamma_init          : '
+                +' ,'.join(['{:2.2e}'.format(g) for g in _g_init]))
+        print('gamma_init (seabot) : '
+                +' ,'.join(['{:2.2e}'.format(g) for g in _g_init_sb]))
+        print('gamma_beta          : {:2.2e}'.format(float(_g_beta)))
+        print('gamma_beta (seabot) : {:2.2e}'.format(float(_g_beta_sb)))
+        
     def update_A(self):
         x, dt, A, B = self.x_hat, self.dt, self.A_coeff, self.B_coeff
         self.A[0,0] = 1 - dt*2.*B*abs(x[0])*x[5]
@@ -471,6 +544,35 @@ class kalman_v1(kalman_core):
         dx[4] = 0.0
         dx[5] = 0.0
         return dx
+
+def _gamma_to_1d(gamma):
+    if isinstance(gamma, list):
+        return np.array(gamma)
+    elif isinstance(gamma, np.ndarray):
+        if len(gamma.shape)==2:
+            return np.diag(gamma)
+        else:
+            return gamma
+
+def _seabot_input_convert(tick_to_volume, 
+                          gamma_alpha, 
+                          gamma_init, 
+                          gamma_beta, 
+                          dt,
+                          x_init=None, 
+                         ):
+    """ Convert gamma_alpha, gamma_init, gamma_beta in terms of seabot input 
+    parameters
+    Valid for kalman filter version v1
+    """
+    sqrt = np.sqrt(dt)
+    _gamma_alpha = np.sqrt(_gamma_to_1d(gamma_alpha)/sqrt)
+    _gamma_init = np.sqrt(_gamma_to_1d(gamma_init))
+    for i in [2,3,4]:
+        _gamma_alpha[i] = _gamma_alpha[i]/tick_to_volume
+        _gamma_init[i] = _gamma_init[i]/tick_to_volume
+    _gamma_beta = np.sqrt(gamma_beta)
+    return _gamma_alpha, _gamma_init, _gamma_beta
 
 class kalman_profile(kalman_core):
     ''' Kalman filter for float state estimation

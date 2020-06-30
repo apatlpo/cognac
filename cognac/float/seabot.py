@@ -277,15 +277,15 @@ class kalman(object):
         self.B_coeff = B_coeff
         self.sqrt = sqrt
         # initial state covariance
-        self.gamma_init = np.diag(gamma_init)**2
+        self.gamma_init = np.diag(gamma_init)
         self.gamma = self.gamma_init
         # dynamical noise covariance
-        self.gamma_alpha = np.diag(gamma_alpha)**2
+        self.gamma_alpha = np.diag(gamma_alpha)
         # observation noise covariance
         if isinstance(gamma_beta, float):
-            self.gamma_beta = np.diag([gamma_beta**2])
+            self.gamma_beta = np.diag([gamma_beta])
         else:
-            self.gamma_beta = np.diag(gamma_beta)**2
+            self.gamma_beta = np.diag(gamma_beta)
         # rescale gamma_alpha to match seabot:
         if sqrt:
             self.gamma_alpha = self.gamma_alpha*np.sqrt(dt)
@@ -387,18 +387,27 @@ class kalman(object):
         dx[4] = 0.0
         dx[5] = 0.0
         return dx
-    
-def get_kf_parameters(cfg, tick2volume, **kwargs):
+
+def get_kf_parameters(cfg, tick2volume, dt, **kwargs):
+    """ Compute covariances from seabot configuration
+    Kalman filter version 1
+    """
     _cfg = cfg['kalman']
+    square = lambda v, scale: [v**2*scale for v in v]
+    sqrt = np.sqrt(dt)
+    #
     x = ['velocity', 'depth', 'offset', 'chi', 'chi2', 'cz']
     _params = ['gamma_alpha_'+v for v in x]
-    gamma_alpha = [float(_cfg[p]) if p not in kwargs else kwargs[p] for p in _params]
-    for i in [2,3,4]:
-        gamma_alpha[i] = gamma_alpha[i]*tick2volume
+    gamma_alpha = [float(_cfg[p]) if p not in kwargs else kwargs[p] for p in _params]        
+    #
     _params = ['gamma_init_'+v for v in x]
     gamma_init = [float(_cfg[p]) if p not in kwargs else kwargs[p] for p in _params]
+    #
     for i in [2,3,4]:
+        gamma_alpha[i] = gamma_alpha[i]*tick2volume
         gamma_init[i] = gamma_init[i]*tick2volume
-    gamma_beta = float(_cfg['gamma_beta_depth'])
+    #
+    gamma_alpha = [v**2*sqrt for v in gamma_alpha]
+    gamma_init = [v**2 for v in gamma_init]
+    gamma_beta = float(_cfg['gamma_beta_depth'])**2
     return gamma_alpha, gamma_init, gamma_beta
-
