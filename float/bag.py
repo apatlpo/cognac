@@ -50,16 +50,27 @@ class SeabotData(object):
         self.k=0
         self.topic_name=topic_name
     def add_time(self, t, startTime):
-        self.time[self.k] = (t-startTime).to_sec()
+        _t = round((t-startTime).to_sec(), 3)
+        if (_t>86400*60 or _t<1e-3) and self.k>1: 
+        	# deployments should be shorter than 2 months (filter out bad values)
+        	print('bad time values found')
+        	_t = 2*self.time[self.k]-self.time[self.k-1]
+        self.time[self.k] = _t
         self.k=self.k+1
     def to_pandas(self, startDate):
-    	#for a in dir(self):
-    	#	print(a)
-    	#	print(type(getattr(self,a)))
-    	#	print(isinstance(getattr(self,a), np.ndarray))
+    	""" convert to dataframe
+    	"""
     	attrs = [a for a in dir(self) if isinstance(getattr(self,a), np.ndarray)]
-    	df = pd.DataFrame(index=[startDate+pd.to_timedelta(t, unit='s') for t in self.time],
-	                      data={a: getattr(self,a) for a in attrs})
+    	data = {a: [_a for _a,_t in zip(getattr(self,a), self.time)] 
+    			for a in attrs}
+    	index = []
+    	for t in self.time:
+    		# treats corrupted times
+    		try:
+    			index.append(startDate+pd.to_timedelta(t, unit='s'))
+    		except:
+    			index.append(startDate+pd.to_timedelta(-10, unit='s'))
+    	df = pd.DataFrame(index=index, data=data)
     	return df
 
 class RosoutData(SeabotData):
@@ -369,11 +380,19 @@ end_time = 0.0
 ####################### Function #######################
 
 #@jit#(nopython=True)
-def load_bag(filename, rosoutData, rosoutAggData, pistonStateData, pistonSetPointData, imuData, magData, eulerData, pistonVelocityData, pistonDistanceData, pistonSpeedData, batteryData, sensorExtData, sensorIntData, engineData, engineCmdData, fixData, temperatureData, batteryFusionData, sensorIntFusionData, depthFusionData, poseFusionData, kalmanData, regulationData, regulationHeadingData, regulationHeadingSetPointData, missionData, safetyData, safetyDebugData, safetyCpu, iridiumStatusData, iridiumSessionData, regulationWaypointData, imuDebugData):
+def load_bag(filename, rosoutData, rosoutAggData, pistonStateData, pistonSetPointData, 
+			 imuData, magData, eulerData, pistonVelocityData, pistonDistanceData, 
+			 pistonSpeedData, batteryData, sensorExtData, sensorIntData, engineData, 
+			 engineCmdData, fixData, temperatureData, batteryFusionData, sensorIntFusionData, 
+			 depthFusionData, poseFusionData, kalmanData, regulationData, regulationHeadingData, 
+			 regulationHeadingSetPointData, missionData, safetyData, safetyDebugData, safetyCpu, 
+			 iridiumStatusData, iridiumSessionData, regulationWaypointData, imuDebugData,
+			 verbose=True):
     start_time_process = time.time()
     bag = rosbag.Bag(filename, 'r')
 
-    print(bag)
+    if verbose:
+    	print(bag)
 
     startTime = rospy.Time.from_sec(bag.get_start_time())# + rospy.Duration(600)
     end_time = rospy.Time.from_sec(bag.get_end_time())# + rospy.Duration(100)
@@ -742,7 +761,7 @@ def load_bag(filename, rosoutData, rosoutAggData, pistonStateData, pistonSetPoin
     #   regulation_depth_set_point.append(regulation_depth_set_point[-1])
 
     # Data Analysis
-    if(len(magData.x)>0):
+    if(len(magData.x)>0) and verbose:
         print("compass_min = ", min(magData.x), min(magData.y), min(magData.z))
         print("compass_max = ", max(magData.x), max(magData.y), max(magData.z))
         print("acc_min = ", min(imuData.acc_x), min(imuData.acc_y), min(imuData.acc_z))
@@ -751,7 +770,8 @@ def load_bag(filename, rosoutData, rosoutAggData, pistonStateData, pistonSetPoin
         print("gyro_mean = ", max(imuData.gyro_x), max(imuData.gyro_y), max(imuData.gyro_z))
 
     done_time_process = time.time()
-    print("LOAD TIME: ", done_time_process-start_time_process)
+    if verbose:
+    	print("  LOAD TIME: %.1f"%(done_time_process-start_time_process))
 
     return startTime
 
@@ -767,16 +787,16 @@ if __name__ == '__main__':
 
 	for bagfile in bagfiles:
 
-		data = get_datadict()
-		startTime = load_bag(bagfile, *data.values())
+		print('---')
+		print('start processing %s'%bagfile)
 
-		#startDate = datetime.datetime.fromtimestamp(startTime.to_time())
-		print
+		data = get_datadict()
+		startTime = load_bag(bagfile, *data.values(), verbose=False)
 		startDate = pd.to_datetime(startTime.to_time(), unit='s')
-		print(startDate)
+		print('  start time: %s'%startDate) # UTC
 
 		out_dir = './pd_'+bagfile.split('/')[-1].split('.')[0]
-		print(out_dir)
+		print('  store pandas files in %s'%out_dir)
 		if not os.path.exists(out_dir):
 			os.makedirs(out_dir)
 		
