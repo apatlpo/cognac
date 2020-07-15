@@ -4,4 +4,5 @@ from .core import *
 from .water import *
 from . import regulation
 from . import seabot
+from . import design
 

@@ -7,7 +7,8 @@ bash
 conda update conda
 conda create -n cognac -c conda-forge \
     python=3.6 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
-    cartopy hvplot gsw 
+    hvplot geoviews datashader nodejs \
+    cartopy gsw 
 conda activate cognac
 pip install pynmea2
 pip install cmocean
@@ -15,6 +16,9 @@ conda install ffmpeg
 git clone https://github.com/python-acoustics/python-acoustics.git
 cd python-acoustics
 pip install -e .
+jupyter labextension install @jupyter-widgets/jupyterlab-manager \
+                             @pyviz/jupyterlab_pyviz \
+                             jupyter-leaflet
 ```
 
 Run a jupyter notebook with the following command:
