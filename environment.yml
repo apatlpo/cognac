@@ -20,5 +20,4 @@ dependencies:
   - datashader
   - distributed
   - python-graphviz
-prefix: /Users/aponte/.miniconda3/envs/cognac
 
