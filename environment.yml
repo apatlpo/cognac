@@ -2,13 +2,10 @@ name: cognac
 channels:
   - conda-forge
 dependencies:
-  - gsw
+  - python=3.6
   - netcdf4
   - xarray
-  - cartopy
   - hvplot
-  - graphviz
-  - python
   - jupyterlab
   - panel
   - holoviews
@@ -16,5 +13,4 @@ dependencies:
   - geoviews
   - nodejs
   - datashader
-  - python-graphviz
 
