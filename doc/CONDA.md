@@ -119,7 +119,8 @@ For packages that are not available from conda or Anaconda.org, we can often ins
 Exporting environment
 
 ```
-conda env export > environment.yml on a machine
+#conda env export > environment.yml on a machine
+conda env export --from-history | cut -f 1 -d '=' > environment.yml
 conda env create -f environment.yml -n $ENV_NAME on the new machine
 ```
 
