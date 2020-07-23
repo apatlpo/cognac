@@ -1,23 +1,20 @@
 name: cognac
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - gsw
   - netcdf4
   - xarray
   - cartopy
   - hvplot
-  - dask-jobqueue
   - graphviz
   - python
   - jupyterlab
-  - ffmpeg
   - panel
   - holoviews
   - bokeh
   - geoviews
   - nodejs
   - datashader
-  - distributed
   - python-graphviz
 
