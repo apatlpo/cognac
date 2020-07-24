@@ -19,7 +19,7 @@ import pynmea2
 
 # cognac data and tools
 #from data import *
-from .utils import gps_data
+#from .utils import gps_data
 
 
 # flag controlling the production or not of figures

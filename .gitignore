@@ -6,6 +6,7 @@ clean
 .DS_Store
 
 # Byte-compiled / optimized / DLL files
+build/
 __pycache__/
 *.py[cod]
 *.so

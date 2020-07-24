@@ -8,10 +8,9 @@ conda update conda
 conda create -n cognac -c conda-forge \
     python=3.6 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
     hvplot geoviews datashader nodejs \
-    cartopy gsw 
+    cartopy gsw cmocean
 conda activate cognac
 pip install pynmea2
-pip install cmocean
 conda install ffmpeg
 git clone https://github.com/python-acoustics/python-acoustics.git
 cd python-acoustics
@@ -23,13 +22,17 @@ jupyter labextension install @jupyter-widgets/jupyterlab-manager \
 
 Run a jupyter notebook with the following command:
 ```
-jupyter-notebook
+jupyter-lab
 ```
 
 In order to add the environnement to kernels available to jupyter, you need to run:
 ```
 python -m ipykernel install --user --name cognac --display-name "COGNAC project env"
 ```
+
+Uninstall library after `pip install -e .`:
+- remove the egg file ( `print(distributed.__file__)` for example)
+- from file `easy-install.pth`, remove the corresponding line (it should be a path to the source directory or of an egg file).
 
 # General information about miniconda:
 
