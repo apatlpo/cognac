@@ -13,7 +13,6 @@ dependencies:
   - pangeo-notebook==2020.07.03
   - xarray
   - hvplot
-  - graphviz
   - geoviews
   - datashader
   - nodejs
@@ -23,6 +22,7 @@ dependencies:
   - pip:
     - sat-search
     - pynmea2
+    - graphviz
 ```
 
 [mybinder](https://mybinder.org)
