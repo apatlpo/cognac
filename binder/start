@@ -1,0 +1,12 @@
+#!/bin/bash -l
+
+# https://github.com/pangeo-data/pangeo-binder-template/tree/master/binder
+
+# ==== ONLY EDIT WITHIN THIS BLOCK =====
+
+export PANGEO_ENV="BINDER_TEMPLATE"
+
+# ==== ONLY EDIT WITHIN THIS BLOCK =====
+
+exec "$@"
+

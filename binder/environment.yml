@@ -1,0 +1,10 @@
+name: cognac
+channels:
+  - conda-forge
+dependencies:
+  - pangeo-notebook==2020.07.03
+  - xarray
+  - hvplot
+  - pip
+  - pip:
+    - sat-search
