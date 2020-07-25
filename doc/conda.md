@@ -6,7 +6,7 @@ bash Miniconda3-latest-MacOSX-x86_64.sh
 bash
 conda update conda
 conda create -n cognac -c conda-forge \
-    python=3.6 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
+    python=3.8 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
     hvplot geoviews datashader nodejs \
     cartopy gsw cmocean
 conda activate cognac
