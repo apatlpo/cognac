@@ -12,9 +12,7 @@ conda create -n cognac -c conda-forge \
 conda activate cognac
 pip install pynmea2
 conda install ffmpeg
-git clone https://github.com/python-acoustics/python-acoustics.git
-cd python-acoustics
-pip install -e .
+pip install git+https://github.com/python-acoustics/python-acoustics.git
 jupyter labextension install @jupyter-widgets/jupyterlab-manager \
                              @pyviz/jupyterlab_pyviz \
                              jupyter-leaflet
