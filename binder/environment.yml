@@ -12,6 +12,6 @@ dependencies:
   - gsw
   - pip
   - pip:
-    - sat-search
     - pynmea2
     - graphviz
+    - -e ../
