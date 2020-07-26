@@ -28,7 +28,7 @@ class rbr(object):
         return 'rbr '+str(self.id)+self.d.__str__()
 
     def __getitem__(self, item):
-        if item is 'time':
+        if item=='time':
             # time or depth?
             return self.d.index
         else:

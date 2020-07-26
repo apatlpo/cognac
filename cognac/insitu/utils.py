@@ -158,9 +158,9 @@ class campaign(object):
         for i, idep in cp['units'].items():
             self._units[i] = objdict(path=self.path)
             for d, value in idep.items():
-                if d[0] is not '_':
+                if d[0]!='_':
                     self._units[i][d] = deployment(label=d,loglines=value)
-                elif d == '_path':
+                elif d=='_path':
                     self._units[i]['path'] = os.path.join(self.path,value)
                 else:
                     self._units[i][d[1:]] = value
@@ -254,13 +254,13 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
         shp = shapereader.Reader(shpfile)
         ax.add_geometries(
             shp.geometries(), crs, edgecolor='black', facecolor='none')
-    elif coast is 'med':
+    elif coast=='med':
         # conda install -c conda-forge gdal
         # ogr2ogr -f "ESRI Shapefile" med_coast.shp /Users/aponte/.local/share/cartopy/shapefiles/gshhs/h/GSHHS_h_L1.shp -clipsrc 6 7 42.5 43.5
         shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_coast')
         for record, geometry in zip(shp.records(), shp.geometries()):
             ax.add_geometries([geometry], crs, facecolor='None', edgecolor='black')
-    elif coast is 'med_high':
+    elif coast=='med_high':
         # conda install -c conda-forge gdal
         # ogr2ogr -f "ESRI Shapefile" med_high_coast.shp ../coastlines/lines.shp -clipsrc 6 7 42.5 43.5
         shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_high_coast')
@@ -335,12 +335,12 @@ def get_time_ticks():
     t = t0
     while t < t1 + datetime.timedelta(hours=6):
         tck.append(t)
-        if t.hour is 12:
+        if t.hour==12:
             tck_label.append(t.strftime('%Y-%m-%d'))
         else:
             tck_label.append('')
         t += datetime.timedelta(hours=6)
-        if t.hour is 0:
+        if t.hour==0:
             tdays.append(date2num(t))
 
     return t0, t1, tck, tck_label, tdays

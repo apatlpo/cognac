@@ -1,9 +1,10 @@
 import numpy as np
-#import pandas as pd
+import pandas as pd
 
 import param
 from bokeh.plotting import figure
 from bokeh.layouts import gridplot
+from bokeh.models import Range1d, Span
 
 import panel as pn
 #pn.extension('plotly')
@@ -27,6 +28,14 @@ _colors = {'deployment': 'orange',
            'total': 'black',
            }
 
+MPa = 1e6
+alu_6061 = {'density': 2700., 
+            'E': 69500*MPa, 
+            'nu': 0.33,
+            'Re': 245*MPa,
+            'alpha': 2.33e-5,
+            }
+
 class ufloat(param.Parameterized):
     
     d_depth = param.Number(500, bounds=(10,4000), step=10, 
@@ -44,10 +53,15 @@ class ufloat(param.Parameterized):
                                label='thickness [cm]', doc="Hull thickness [cm]")
     h_density = param.Number(2700, bounds=(1000,3000), step=50., 
                              label='density [kg/m3]', doc="Hull density [kg/m^3]")
+    h_cap_thickness = param.Number(.5, bounds=(.1,3.), step=.1, 
+                                   label='end cap thickness [cm]', 
+                                   doc="End cap thickness [cm]")
 
-    p_length = param.Number(.2, bounds=(.1,1.), step=.01, 
-                            label='length',doc="Piston length [m]")
-    #radius = param.Number(.0095, bounds=(.001,1.), step=.001, doc="Piston radius [m]") # dependent variable
+    #p_length = param.Number(.2, bounds=(.1,1.), step=.01, 
+    #                        label='length',doc="Piston length [m]")
+    p_lambda = param.Number(.5, bounds=(.1,1.), step=.01,
+                            label='piston length normalized [1]',
+                            doc="Piston length normalized [1]")
     p_density = param.Number(2700, bounds=(1000,3000), step=50., 
                              label='density [kg/m3]', doc="Piston density [kg/m^3]")
     p_efficiency = param.Number(.1, bounds=(.01,1.), step=.01, 
@@ -67,8 +81,8 @@ class ufloat(param.Parameterized):
     b_lithium = param.Boolean(True, label='lithium', doc="Battery type")
 
     _params = ['d_depth', 'd_T', 'd_delta_rho',
-               'h_radius', 'h_thickness', 'h_density', # 'h_length', 
-               'p_length', 'p_density', 'p_efficiency', 'p_speed',
+               'h_radius', 'h_thickness', 'h_density', 'h_cap_thickness', # 'h_length', 
+               'p_lambda', 'p_density', 'p_efficiency', 'p_speed', #'p_length', 
                'e_volume', 'e_mass', 'e_c', 
                'b_cell', 'b_lithium',
               ]
@@ -78,7 +92,8 @@ class ufloat(param.Parameterized):
                'h_radius': 1e-2, 
                'h_thickness': 1e-2,
                'h_density': 1,
-               'p_length': 1.,
+               'h_cap_thickness': 1e-2,
+               'p_lambda': 1., #'p_length': 1.,
                'p_density': 1., 
                'p_efficiency': 1.,
                'p_speed': 1/3600.,
@@ -88,7 +103,6 @@ class ufloat(param.Parameterized):
                'b_cell': None, 
                'b_lithium': None,
                }
-    #_parts = ['deployment', 'hull', 'piston', 'electronics', 'battery']
     _mapping = {p[0]: p for p in _items}
     
     def get_part(self, item):
@@ -106,54 +120,113 @@ class ufloat(param.Parameterized):
         # will mirror data in dicts:
         self.D = {i: {} for i in _items}
         self.D['total'] = {}
+        # hull material
+        self.D['hull'].update(alu_6061)
+
+        # constraints
+        self.constraints = {}
 
         # init figures
-        self.renderers = {v: {} for v in ['volume', 'length', 'mass']}
-        line = lambda f, c, l: f.line([],[], 
-                                      color=c,
-                                      line_width=3,
-                                      legend_label=l
-                                      )
-        _tools = 'pan,wheel_zoom,box_zoom,reset'
+        self.renderers = {v: {} for v in ['volume', 
+                                          'length', 
+                                          'mass', 
+                                          'constraints']
+                          }
+        
+        _tools = 'pan,wheel_zoom,box_zoom,hover,crosshair,reset'
+        TOOLTIPS = [("(radius, y)", "($x, $y)"),]
+        # for linked crosshair: 
+        # https://stackoverflow.com/questions/37965669/how-do-i-link-the-crosshairtool-in-bokeh-over-several-plots        
+        
         f_volume = figure(y_axis_label='volume [liters]',
-                          tools=_tools
+                          tools=_tools,
+                          tooltips=TOOLTIPS,
                           )
-        _r = self.renderers['volume']
+        f, r = f_volume, self.renderers['volume']
         for i in ['hull', 'piston', 'battery', 'electronics', 'total']:
-            _r[i] = line(f_volume, _colors[i], i)
+            r[i] = f.line([],[],
+                          color=_colors[i],
+                          line_width=3,
+                          legend_label=i
+                          )
+        f.legend.background_fill_alpha=0.1
         #
         f_length = figure(y_axis_label='length [cm]',
                           tools=_tools,
+                          tooltips=TOOLTIPS,
                           x_range=f_volume.x_range
                           )
-        _r = self.renderers['length']
+        f, r = f_length, self.renderers['length']
         for i in ['hull', 'piston']:
-            _r[i] = line(f_length, _colors[i], i+' radius')
-        _r['hull_length'] = f_length.line([],[],
-                                          color=_colors[i], 
-                                          line_dash='4 4',
-                                          legend_label='hull length')
+            r[i+'_radius'] = f.line([],[],
+                                    color=_colors[i],
+                                    line_width=2,
+                                    legend_label=i+' radius',
+                                    )
+            r[i+'_length'] = f.line([],[],
+                                    color=_colors[i],
+                                    line_width=4,
+                                    legend_label=i+' length',
+                                    )
+        r['hull_radius_gamma'] = f.line([],[],
+                                        color=_colors['hull'],
+                                        line_width=3,
+                                        line_dash='4 4',
+                                        legend_label='h radius/gamma^{1/2}'
+                                        )
+        f.xaxis.axis_label = 'hull radius [cm]'
+        f.legend.background_fill_alpha=0.1        
         #
         f_mass = figure(y_axis_label='mass [kg/m3]',
                         tools=_tools,
+                        tooltips=TOOLTIPS,
                         x_range=f_volume.x_range
                         )
-        _r = self.renderers['mass']
+        f, r = f_mass, self.renderers['mass']
         for i in ['battery', 'hull', 'total']:
-            _r[i] = line(f_mass, _colors[i], i)
+            r[i] = f.line([],[],
+                          color=_colors[i],
+                          line_width=3,
+                          legend_label=i
+                          )
+        f.legend.background_fill_alpha=0.1
         #
-        f_length.xaxis.axis_label = 'hull radius [cm]'
-        f_mass.xaxis.axis_label = 'hull radius [cm]'
-        #x_range=s1.x_range,
-        self.figures = gridplot([[f_volume, f_mass], [f_length,None]], 
+        f_constraints = figure(y_axis_label='constraint [1]',
+                               tools=_tools,
+                               x_range=f_volume.x_range,
+                               y_range=(0,5),
+                               )
+        f, r = f_constraints, self.renderers['constraints']
+        r['stress'] = line(f, _colors['hull'], 'stress')
+        r['buckling'] = line(f, _colors['hull'], 'buckling', line_dash='4 4')
+        r['piston_length'] = line(f, _colors['piston'], 'piston length')
+        r['piston_radius'] = line(f, _colors['piston'], 'piston radius', 
+                                  line_dash='4 4')
+        f.xaxis.axis_label = 'hull radius [cm]'
+        f.add_layout(Span(location=1, dimension='width', 
+                          line_color='black', line_width=1)
+                     )
+        f.legend.background_fill_alpha=0.1        
+        #
+        self.figures = gridplot([[f_volume, f_mass], 
+                                 [f_length, f_constraints]], 
                                 plot_width=400, 
                                 plot_height=300,
-                                #toolbar_location=None,
                                 )
         #
         self.update()
-    
-    #@param.depends('b_cell', 'b_lithium')
+
+    def _update_dict_params(self):
+        # push and rescale data in central dict
+        for p in self._params:
+            _k, _p = self.get_key_and_part(p)
+            _d = self.D[_p]
+            if p=='h_radius':
+                _d['radius'] = np.linspace(self.h_radius[0], 
+                                           self.h_radius[1], 100) /1e2
+            elif self._scales[p]:
+                _d[_k] = getattr(self, p) * self._scales[p]
+
     def _update_battery(self):
         """ J/kg
         alcaline: 1.2V*1Ah=1.2Wh pour 136g
@@ -169,26 +242,56 @@ class ufloat(param.Parameterized):
         self.D['battery']['density'] = density
         self.D['battery']['edensity'] = edensity
 
-    @param.depends(*_params)
-    def variables_view(self):
-        return self.figures
+    def _update_mechanical_constraints(self, length=True):
+        
+        p = self.D['deployment']['pressure']
+        
+        # stress
+        e = self.D['hull']['thickness']
+        a = self.D['hull']['radius'] - e/2.
+        sigma = p*a/e*np.sqrt(1+1/4)
+        # needs to be lower than self.D['hull']['Re']
+        # !! should checks that internal radius < thickness > 10
+        self.constraints['stress'] = (self.D['hull']['Re'], sigma)
 
-    def _update_dict_params(self):
-        # push and rescale data in central dict
-        for p in self._params:
-            _k, _p = self.get_key_and_part(p)
-            _d = self.D[_p]
-            if p=='h_radius':
-                _d['radius'] = np.linspace(self.h_radius[0], 
-                                           self.h_radius[1], 100) /1e2
-            elif self._scales[p]:
-                _d[_k] = getattr(self, p) * self._scales[p]
+        # buckling pressure
+        E = self.D['hull']['E']
+        nu = self.D['hull']['nu']
+        t = e
+        n = 2 # number of lobes
+        l = self.D['hull']['length']
+        r = self.D['hull']['radius']
+        _r = (np.pi*r/(n*l))**2
+        q_prime = ( E*t/r/(1+_r/2)
+                   *( 1/n**2/(1+1/_r)**2
+                     + n**2 * t**2 /12 /(1-nu**2)
+                      *(1+_r)**2
+                    )
+                   )
+        # needs to be larger than 1.2 p
+        self.constraints['buckling'] = (q_prime, 1.2*p)
+                
+    def _update_compressibilities(self):
 
-    def _update_line(self, renderer_key, item, variable, x, scale):
-        _d = self.D[item][variable]
+        p = self.D['deployment']['depth'] *g*rho0
+        e = self.D['hull']['thickness']
+        a = self.D['hull']['radius'] - e/2.
+
+        E = self.D['hull']['E']
+        nu = self.D['hull']['nu']
+
+        # mechanical compressibility
+        self.D['hull']['mechanical_compressibility'] = a/e/E*(5/2-2*nu) # 1/Pa
+
+        # thermal compressibility
+        self.D['hull']['thermal_compressibility'] = 3*self.D['hull']['alpha']
+    
+    def _update_line(self, figure_key, item, data, x, scale):
+        #_d = self.D[item][data_key]
+        _d = data
         if isinstance(_d, float):
             _d = np.ones_like(x)*_d
-        (self.renderers[renderer_key][item]
+        (self.renderers[figure_key][item]
          .data_source
          .data
          .update({'x': x*1e2, 
@@ -196,7 +299,7 @@ class ufloat(param.Parameterized):
                   }
                 )
          )
-
+        
     @param.depends(*_params, watch=True)
     def update(self):
         
@@ -207,34 +310,50 @@ class ufloat(param.Parameterized):
         d, h, p, b, e = (self.D[i] for i in _items)
         t = self.D['total']
 
-        # renormalizations
-        d_T = self.d_T*86400.
-        h_radius = np.linspace(self.h_radius[0], self.h_radius[1], 100) /1e2
-        h_thickness = self.h_thickness/1e2
-        p_speed = self.p_speed/3600.
-        e_volume = self.e_volume*1e-6
-
         # solve for volume first
-        gamma = d['delta_rho']/rho0
-        sigma = (gamma/p['length'] 
-                 *rho0*g*d['depth'] 
+        self._update_compressibilities()
+        d['pressure'] = rho0 * g * d['depth']
+        gamma = (d['delta_rho']/rho0 
+                 - h['mechanical_compressibility']*d['pressure']
+                 )
+        ## with lambda
+        sigma = (np.pi*gamma/p['lambda'] 
+                 *d['pressure']
                  *p['speed']/p['efficiency']
                  )
-        h['volume'] = ( (d['T']*e['c']/b['edensity'] + e['mass'])
+        h['volume'] = ( (( 2.*np.pi*h['cap_thickness']*h['density']
+                          + d['T']*sigma/b['edensity']
+                          )*h['radius']**2
+                         +d['T']*e['c']/b['edensity'] 
+                         + e['mass']
+                         )
                         /( rho0 
                           - 2*h['thickness']/h['radius']*h['density']
                           - p['density'] * gamma
-                          - d['T']*sigma/b['edensity']
                           )
                        )
+        ## l_p held fixed:
+        # sigma = (gamma/p['length'] 
+        #          *d['pressure']
+        #          *p['speed']/p['efficiency']
+        #          )
+        # h['volume'] = ( (2.*np.pi*h['radius']**2*h['cap_thickness']*h['density']
+        #                  +d['T']*e['c']/b['edensity'] 
+        #                  + e['mass']
+        #                  )
+        #                 /( rho0 
+        #                   - 2*h['thickness']/h['radius']*h['density']
+        #                   - p['density'] * gamma
+        #                   - d['T']*sigma/b['edensity']
+        #                   )
+        #                )
         h['volume'][np.where(h['volume']<0)] = np.NaN
         
         # propagate volume 
         h['length'] = h['volume']/(np.pi*h['radius']**2)
         
         # piston radius
-        #gamma = self.d_delta_rho/rho0
-        #p_radius = np.sqrt(self.h_length/self.p_length * gamma) * h_radius
+        p['length'] = p['lambda']*h['length'] # if lambda is used
         p['radius'] = np.sqrt(h['length']/p['length'] * gamma) * h['radius']
         
         # piston conssumption
@@ -242,34 +361,59 @@ class ufloat(param.Parameterized):
                    * np.pi * p['radius']**2 
                    * p['speed']/p['efficiency']
                    )
-    
+
         # battery mass
         #self.update_battery()
         b['mass'] = d['T']*(e['c']+p['c'])/b['edensity']
         b['volume'] = b['mass']/b['density']
         
-        
         # other parameters
-        h['mass'] = h['volume'] * h['density']
+        h['mass'] = (2.*np.pi*h['radius']*h['thickness']*h['length']
+                     + 2.*np.pi*h['radius']**2*h['cap_thickness']
+                     )*h['density']
         p['volume'] = np.pi*p['radius']**2*p['length']
         p['mass'] = p['density']*p['volume']
         t['mass'] = h['mass'] + p['mass'] + b['mass'] + e['mass']
         t['volume'] = p['volume'] + b['volume'] + e['volume']
 
+        # update constraints
+        self.constraints['piston_length'] = (h['length'], p['length'])
+        self.constraints['piston_radius'] = (h['radius'], p['radius'])
+        self._update_mechanical_constraints()
+
         # update plots
         for _p in ['hull', 'piston', 'battery', 'electronics', 'total']:
-            self._update_line('volume', _p, 'volume', h['radius'], 1e3)
+            self._update_line('volume', _p, self.D[_p]['volume'], 
+                              h['radius'], 1e3)
         #
         for _p in ['hull', 'piston', ]:
-            self._update_line('length', _p, 'radius', h['radius'], 1e2)
-        (self.renderers['length']['hull_length']
+            self._update_line('length', _p+'_radius', self.D[_p]['radius'], 
+                              h['radius'], 1e2)
+            self._update_line('length', _p+'_length', self.D[_p]['length'], 
+                              h['radius'], 1e2)
+        (self.renderers['length']['hull_radius_gamma']
          .data_source.data.update({'x': h['radius']*1e2, 
-                                   'y': self.D['hull']['length']*1e2}
+                                   'y': np.sqrt(gamma)*h['radius']*1e2}
                                   )
-         )
+        )
+        # manually adjust y range
+        _ylim = (0., 3.*np.nanmax(p['radius'])*1e2)
+        self.figures.children[1].children[2][0].y_range = Range1d(*_ylim)
         #
         for _p in ['hull', 'battery', 'total']:
-            self._update_line('mass', _p, 'mass', h['radius'], 1)
+            self._update_line('mass', _p, self.D[_p]['mass'],
+                              h['radius'], 1)
+        #
+        r = self.renderers['constraints']
+        for k, v in self.constraints.items():
+            (r[k]
+             .data_source.data
+             .update({'x': h['radius']*1e2, 'y': v[0]/v[1]})
+            )
+
+    @param.depends(*_params)
+    def variables_view(self):
+        return self.figures
 
     def panel(self):
         w = self._widgets_panel()
@@ -287,10 +431,12 @@ class ufloat(param.Parameterized):
                 pn.Column('### {}'.format('Hull'),
                           pn.panel(self.param.h_radius), #pn.panel(self.param.h_length),
                           pn.panel(self.param.h_thickness),
+                          pn.panel(self.param.h_cap_thickness),
                           pn.panel(self.param.h_density),
                          ),
                pn.Column('### {}'.format('Piston'),
-                          pn.panel(self.param.p_length),
+                          #pn.panel(self.param.p_length),
+                          pn.panel(self.param.p_lambda),
                           pn.panel(self.param.p_density),
                           pn.panel(self.param.p_efficiency),
                           pn.panel(self.param.p_speed),
@@ -305,7 +451,16 @@ class ufloat(param.Parameterized):
                           pn.panel(self.param.b_lithium),
                         ),
                )
-    
+
+def line(f, c, l, **kwargs): 
+    ''' shortcut for bokeh line creation
+    '''
+    return f.line([],[], 
+                  color=c,
+                  line_width=3,
+                  legend_label=l,
+                  **kwargs,
+                  )
 
 _part_colors = {'deployment': 'orange', 
                 'hull': 'cadetblue',
