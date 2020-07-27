@@ -15,22 +15,22 @@ dependencies:
   - hvplot
   - geoviews
   - datashader
+  - jupyter-panel-proxy
   - nodejs
   - cartopy
   - gsw
   - pip
   - pip:
-    - sat-search
     - pynmea2
     - graphviz
+    - acoustics
+    - -e ../
 ```
 
 [mybinder](https://mybinder.org)
 
 Panel binder deployment see [panel doc](https://panel.holoviz.org/user_guide/Server_Deployment.html)
 
-pip install tweaks:
-[1](https://github.com/conda/conda/blob/4.7.11/tests/conda_env/support/advanced-pip/environment.yml)
-[3](https://remotedevdaily.com/how-to-install-packages-from-github-with-pip-and-pipenv/)
+pip install tweaks: [1](https://github.com/conda/conda/blob/4.7.11/tests/conda_env/support/advanced-pip/environment.yml), [2](https://remotedevdaily.com/how-to-install-packages-from-github-with-pip-and-pipenv/)
 
-https://mybinder.org/v2/gh/apatlpo/cognac/master?urlpath=/panel/design
+[mybinder cognac](https://mybinder.org/v2/gh/apatlpo/cognac/master?urlpath=/panel/design)

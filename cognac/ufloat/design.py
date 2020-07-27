@@ -172,7 +172,7 @@ class ufloat(param.Parameterized):
                                         color=_colors['hull'],
                                         line_width=3,
                                         line_dash='4 4',
-                                        legend_label='h radius/gamma^{1/2}'
+                                        legend_label='h radius/Gamma^{1/2}'
                                         )
         f.xaxis.axis_label = 'hull radius [cm]'
         f.legend.background_fill_alpha=0.1        
@@ -193,15 +193,18 @@ class ufloat(param.Parameterized):
         #
         f_constraints = figure(y_axis_label='constraint [1]',
                                tools=_tools,
+                               tooltips=TOOLTIPS,
                                x_range=f_volume.x_range,
                                y_range=(0,5),
                                )
         f, r = f_constraints, self.renderers['constraints']
         r['stress'] = line(f, _colors['hull'], 'stress')
-        r['buckling'] = line(f, _colors['hull'], 'buckling', line_dash='4 4')
+        r['buckling'] = line(f, _colors['hull'], 'buckling', 
+                             line_dash='dashed')
+        r['compressibility'] = line(f, 'green', '1/compressibility')
         r['piston_length'] = line(f, _colors['piston'], 'piston length')
         r['piston_radius'] = line(f, _colors['piston'], 'piston radius', 
-                                  line_dash='4 4')
+                                  line_dash='dashed')
         f.xaxis.axis_label = 'hull radius [cm]'
         f.add_layout(Span(location=1, dimension='width', 
                           line_color='black', line_width=1)
@@ -210,7 +213,7 @@ class ufloat(param.Parameterized):
         #
         self.figures = gridplot([[f_volume, f_mass], 
                                  [f_length, f_constraints]], 
-                                plot_width=400, 
+                                plot_width=500, 
                                 plot_height=300,
                                 )
         #
@@ -264,7 +267,7 @@ class ufloat(param.Parameterized):
         _r = (np.pi*r/(n*l))**2
         q_prime = ( E*t/r/(1+_r/2)
                    *( 1/n**2/(1+1/_r)**2
-                     + n**2 * t**2 /12 /(1-nu**2)
+                     + (n*t/r)**2 /12 /(1-nu**2)
                       *(1+_r)**2
                     )
                    )
@@ -281,7 +284,11 @@ class ufloat(param.Parameterized):
         nu = self.D['hull']['nu']
 
         # mechanical compressibility
-        self.D['hull']['mechanical_compressibility'] = a/e/E*(5/2-2*nu) # 1/Pa
+        gamma = a/e/E*(5/2-2*nu) # 1/Pa
+        self.D['hull']['mechanical_compressibility'] = gamma
+        gamma_water = 4.4e-10 # see:
+        # https://github.com/apatlpo/cognac/blob/master/float_simulations/ocean_water_properties.ipynb
+        self.constraints['compressibility'] = (gamma_water, gamma)
 
         # thermal compressibility
         self.D['hull']['thermal_compressibility'] = 3*self.D['hull']['alpha']
@@ -313,11 +320,11 @@ class ufloat(param.Parameterized):
         # solve for volume first
         self._update_compressibilities()
         d['pressure'] = rho0 * g * d['depth']
-        gamma = (d['delta_rho']/rho0 
+        Gamma = (d['delta_rho']/rho0 
                  - h['mechanical_compressibility']*d['pressure']
                  )
         ## with lambda
-        sigma = (np.pi*gamma/p['lambda'] 
+        sigma = (np.pi*Gamma/p['lambda'] 
                  *d['pressure']
                  *p['speed']/p['efficiency']
                  )
@@ -329,11 +336,11 @@ class ufloat(param.Parameterized):
                          )
                         /( rho0 
                           - 2*h['thickness']/h['radius']*h['density']
-                          - p['density'] * gamma
+                          - p['density'] * Gamma
                           )
                        )
         ## l_p held fixed:
-        # sigma = (gamma/p['length'] 
+        # sigma = (Gamma/p['length'] 
         #          *d['pressure']
         #          *p['speed']/p['efficiency']
         #          )
@@ -343,7 +350,7 @@ class ufloat(param.Parameterized):
         #                  )
         #                 /( rho0 
         #                   - 2*h['thickness']/h['radius']*h['density']
-        #                   - p['density'] * gamma
+        #                   - p['density'] * Gamma
         #                   - d['T']*sigma/b['edensity']
         #                   )
         #                )
@@ -354,7 +361,7 @@ class ufloat(param.Parameterized):
         
         # piston radius
         p['length'] = p['lambda']*h['length'] # if lambda is used
-        p['radius'] = np.sqrt(h['length']/p['length'] * gamma) * h['radius']
+        p['radius'] = np.sqrt(h['length']/p['length'] * Gamma) * h['radius']
         
         # piston conssumption
         p['c'] =  (rho0 * g * d['depth']
@@ -393,7 +400,7 @@ class ufloat(param.Parameterized):
                               h['radius'], 1e2)
         (self.renderers['length']['hull_radius_gamma']
          .data_source.data.update({'x': h['radius']*1e2, 
-                                   'y': np.sqrt(gamma)*h['radius']*1e2}
+                                   'y': np.sqrt(Gamma)*h['radius']*1e2}
                                   )
         )
         # manually adjust y range
@@ -455,12 +462,12 @@ class ufloat(param.Parameterized):
 def line(f, c, l, **kwargs): 
     ''' shortcut for bokeh line creation
     '''
-    return f.line([],[], 
-                  color=c,
-                  line_width=3,
-                  legend_label=l,
-                  **kwargs,
-                  )
+    kdefault = {'color': c,
+                'line_width': 3,
+                'legend_label': l,
+                }
+    kdefault.update(kwargs)
+    return f.line([],[], **kdefault)
 
 _part_colors = {'deployment': 'orange', 
                 'hull': 'cadetblue',
