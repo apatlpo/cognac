@@ -11,17 +11,20 @@ import panel as pn
 
 from graphviz import Graph
 
-rho0 = 1030 # kg/m3
 g = 9.81 # m/s^2
 MPa = 1e6 # Pa
+
+rho0 = 1030 # kg/m3
+gamma_water = 4.4e-10 # see:
+# https://github.com/apatlpo/cognac/blob/master/float_simulations/ocean_water_properties.ipynb
 
 # https://en.wikipedia.org/wiki/D_battery
 #D_volume = np.pi*(33.2/2.)**2 * 61.5*1e-9
 #D_mass_lithium = 96e-3
 #D_mass_alcaline = 136e-3
 
-_items = ['deployment','hull', 'piston', 'battery', 'electronics', 'options']
-_colors = {'deployment': 'orange', 
+_items = ['deployment', 'hull', 'piston', 'battery', 'electronics', 'options']
+_colors = {'deployment': 'orange',
            'hull': 'cadetblue',
            'piston': 'gray',
            'electronics': 'salmon',
@@ -29,12 +32,30 @@ _colors = {'deployment': 'orange',
            'total': 'black',
            }
 
-_materials = {'alu_6061': {'density': 2700., 
-                           'E': 69500*MPa, 
+_materials = {'alu_6061': {'density': 2700.,
+                           'E': 69500*MPa,
                            'nu': 0.33,
                            'Re': 245*MPa,
                            'alpha': 2.33e-5,
-                           }
+                           },
+              'verre': {'density': 2230.,
+                        'E': 64000*MPa,
+                        'nu': 0.2,
+                        'Re': 2000*MPa,
+                        'alpha': 3.30e-5,
+                        },
+              'pmma': {'density': 1200.,
+                       'E': 3300*MPa,
+                       'nu': 0.35,
+                       'Re': 65*MPa,
+                       'alpha': 6.80e-5,
+                       },
+              'pom': {'density': 1410.,
+                      'E': 2800*MPa,
+                      'nu': 0.35,
+                      'Re': 62*MPa,
+                      'alpha': 9.00e-5,
+                      },
               }
 
 _batteries = {'lsh20': {'long_name': 'lsh20 (D cell - lithium)',
@@ -60,95 +81,95 @@ _batteries = {'lsh20': {'long_name': 'lsh20 (D cell - lithium)',
 
 
 class ufloat(param.Parameterized):
-    
+
     # deployment properties
-    d_depth = param.Number(500, bounds=(10,4000), step=10, 
+    d_depth = param.Number(500, bounds=(10,4000), step=10,
                            label='depth [m]', doc="Deployment depth [m]")
-    d_T = param.Number(30, bounds=(1,300), step=1, 
+    d_T = param.Number(30, bounds=(1,300), step=1,
                        label='T [days]', doc="Deployment time length [days]")
-    d_delta_rho = param.Number(5, bounds=(1,30), step=.5, 
+    d_delta_rho = param.Number(5, bounds=(1,30), step=.5,
                                label='delta_rho [kg/m3]', doc="Deployment density delta [kg/m^3]")
-    
+
     # hull properties
-    #h_length = param.Number(0.8, bounds=(.1,2.), step=.02, 
+    #h_length = param.Number(0.8, bounds=(.1,2.), step=.02,
     #                        label='length [m]', doc="Hull length [m]")
-    h_radius = param.Range(default=(1., 50.), bounds=(1.,100.), 
+    h_radius = param.Range(default=(1., 30.), bounds=(1.,50.),
                            label='radius [cm]', doc="Hull radius [cm]")
-    h_thickness = param.Number(.5, bounds=(.1,2.), step=.1, 
+    h_thickness = param.Number(.5, bounds=(.1,2.), step=.1,
                                label='thickness [cm]', doc="Hull thickness [cm]")
-    h_cap_thickness = param.Number(.5, bounds=(.1,3.), step=.1, 
-                                   label='end cap thickness [cm]', 
+    h_cap_thickness = param.Number(.5, bounds=(.1,3.), step=.1,
+                                   label='end cap thickness [cm]',
                                    doc="End cap thickness [cm]")
-    #h_density = param.Number(2700, bounds=(1000,3000), step=50., 
+    #h_density = param.Number(2700, bounds=(1000,3000), step=50.,
     #                         label='density [kg/m3]', doc="Hull density [kg/m^3]")
-    h_material = param.Selector(objects=list(_materials), 
+    h_material = param.Selector(objects=list(_materials),
                                 label='size', doc="Material")
 
     # piston properties
-    #p_length = param.Number(.2, bounds=(.1,1.), step=.01, 
+    #p_length = param.Number(.2, bounds=(.1,1.), step=.01,
     #                        label='length',doc="Piston length [m]")
     p_lambda = param.Number(.5, bounds=(.1,1.), step=.01,
                             label='piston length normalized [1]',
                             doc="Piston length normalized [1]")
-    p_density = param.Number(2700, bounds=(1000,3000), step=50., 
+    p_density = param.Number(2700, bounds=(1000,3000), step=50.,
                              label='density [kg/m3]', doc="Piston density [kg/m^3]")
-    p_efficiency = param.Number(.1, bounds=(.01,1.), step=.01, 
+    p_efficiency = param.Number(.1, bounds=(.01,1.), step=.01,
                                 label='efficiency [1]', doc="Piston energetic efficiency [1]")
     p_speed = param.Number(.1, bounds=(.01,10), step=.01, label='speed [m/h]',
                            doc="Piston speed [m/h]")
 
     # electronics properties
-    e_volume = param.Number(250, bounds=(10,1000), step=10, 
+    e_volume = param.Number(250, bounds=(10,1000), step=10,
                             label='volume [cm3]', doc="Electronics volume [cm3]")
     e_mass = param.Number(.400, bounds=(.1,1.), step=.05,
                           label='mass [kg]', doc="Electronics mass [kg]")
-    e_c = param.Number(.1, bounds=(.01,1.), step=.01, 
+    e_c = param.Number(.1, bounds=(.01,1.), step=.01,
                        label='conssumption [W]', doc="Electronics conssumption [W]")
 
     # battery selector
     b_cell = param.Selector(objects={v['long_name']: k for k, v in _batteries.items()},
                             label='size', doc="type")
     #b_lithium = param.Boolean(True, label='lithium', doc="Battery type")
-    
+
     # Option buttons
     o_cap = param.Boolean(True, label='cap', doc="Cap")
     o_compressibility = param.Boolean(True, label='compressibility', doc="Compressibility")
 
     _params = ['d_depth', 'd_T', 'd_delta_rho',
-               'h_radius', 'h_thickness', 'h_cap_thickness',  # 'h_length', 
-               'h_material', #'h_density', 
-               'p_lambda', 'p_density', 'p_efficiency', 'p_speed', #'p_length', 
-               'e_volume', 'e_mass', 'e_c', 
+               'h_radius', 'h_thickness', 'h_cap_thickness',  # 'h_length',
+               'h_material', #'h_density',
+               'p_lambda', 'p_density', 'p_efficiency', 'p_speed', #'p_length',
+               'e_volume', 'e_mass', 'e_c',
                'b_cell', #'b_lithium',
                'o_cap', 'o_compressibility',
               ]
-    _scales = {'d_depth': 1., 
-               'd_T': 86400., 
-               'd_delta_rho': 1., 
+    _scales = {'d_depth': 1.,
+               'd_T': 86400.,
+               'd_delta_rho': 1.,
                #'h_length': 1.,
-               'h_radius': 1e-2, 
+               'h_radius': 1e-2,
                'h_thickness': 1e-2,
                'h_cap_thickness': 1e-2,
                #'h_density': 1,
                'h_material': None,
                'p_lambda': 1., #'p_length': 1.,
-               'p_density': 1., 
+               'p_density': 1.,
                'p_efficiency': 1.,
                'p_speed': 1/3600.,
-               'e_volume': 1e-6, 
-               'e_mass': 1., 
-               'e_c': 1., 
-               'b_cell': None, 
+               'e_volume': 1e-6,
+               'e_mass': 1.,
+               'e_c': 1.,
+               'b_cell': None,
                #'b_lithium': None,
                'o_cap': None,
                'o_compressibility': None,
                }
     _mapping = {p[0]: p for p in _items}
-    
+
     def get_part(self, item):
         assert item in self._params
         return self._mapping[item.split('_')[0]]
-    
+
     def get_key_and_part(self, item):
         assert item in self._params
         item_split = item.split('_')
@@ -167,18 +188,18 @@ class ufloat(param.Parameterized):
         self.constraints = {}
 
         # init figures
-        self.renderers = {v: {} for v in ['volume', 
-                                          'length', 
-                                          'mass', 
+        self.renderers = {v: {} for v in ['volume',
+                                          'length',
+                                          'mass',
                                           'constraints',
                                           'speed']
                           }
-        
+
         _tools = 'pan,wheel_zoom,box_zoom,hover,crosshair,reset'
         TOOLTIPS = [("(radius, y)", "($x, $y)"),]
-        # for linked crosshair: 
-        # https://stackoverflow.com/questions/37965669/how-do-i-link-the-crosshairtool-in-bokeh-over-several-plots        
-        
+        # for linked crosshair:
+        # https://stackoverflow.com/questions/37965669/how-do-i-link-the-crosshairtool-in-bokeh-over-several-plots
+
         f_volume = figure(y_axis_label='[liters]',
                           tools=_tools,
                           tooltips=TOOLTIPS,
@@ -218,7 +239,8 @@ class ufloat(param.Parameterized):
         #f.xaxis.axis_label = 'hull radius [cm]'
         f.legend.background_fill_alpha=0.1
         #
-        f_mass = figure(y_axis_label='[kg/m3]',
+        f_mass = figure(y_axis_label='[kg]',
+                        y_axis_location='right',
                         tools=_tools,
                         tooltips=TOOLTIPS,
                         x_range=f_volume.x_range
@@ -233,6 +255,7 @@ class ufloat(param.Parameterized):
         f.legend.background_fill_alpha=0.1
         #
         f_constraints = figure(y_axis_label='[1]',
+                               y_axis_location='right',
                                tools=_tools,
                                tooltips=TOOLTIPS,
                                x_range=f_volume.x_range,
@@ -240,14 +263,14 @@ class ufloat(param.Parameterized):
                                )
         f, r = f_constraints, self.renderers['constraints']
         r['stress'] = line(f, _colors['hull'], 'stress')
-        r['buckling'] = line(f, _colors['hull'], 'buckling', 
+        r['buckling'] = line(f, _colors['hull'], 'buckling',
                              line_dash='dashed')
         r['compressibility'] = line(f, 'green', '1/compressibility')
         r['piston_length'] = line(f, _colors['piston'], 'piston length')
-        r['piston_radius'] = line(f, _colors['piston'], 'piston radius', 
+        r['piston_radius'] = line(f, _colors['piston'], 'piston radius',
                                   line_dash='dashed')
         f.xaxis.axis_label = 'hull radius [cm]'
-        f.add_layout(Span(location=1, dimension='width', 
+        f.add_layout(Span(location=1, dimension='width',
                           line_color='black', line_width=1)
                      )
         f.legend.background_fill_alpha = 0.1
@@ -261,10 +284,10 @@ class ufloat(param.Parameterized):
         r['maxspeed'] = line(f, 'black', 'max speed')
         f.legend.background_fill_alpha=0.1
         #
-        self.figures = gridplot([[f_volume, f_mass], 
+        self.figures = gridplot([[f_volume, f_mass],
                                  [f_length, f_constraints],
-                                 [f_speed,None]], 
-                                plot_width=500, 
+                                 [f_speed,None]],
+                                plot_width=500,
                                 plot_height=300,
                                 )
         #
@@ -276,8 +299,8 @@ class ufloat(param.Parameterized):
             _k, _p = self.get_key_and_part(p)
             _d = self.D[_p]
             if p=='h_radius':
-                _d['radius'] = np.linspace(self.h_radius[0], 
-                                           self.h_radius[1], 
+                _d['radius'] = np.linspace(self.h_radius[0],
+                                           self.h_radius[1],
                                            100) /1e2
             elif p=='h_material':
                 _d['material'] = self.h_material
@@ -309,9 +332,9 @@ class ufloat(param.Parameterized):
         self.D['battery']['edensity'] = edensity
 
     def _update_mechanical_constraints(self, length=True):
-        
+
         p = self.D['deployment']['pressure']
-        
+
         # stress
         e = self.D['hull']['thickness']
         a = self.D['hull']['radius'] - e/2.
@@ -337,7 +360,7 @@ class ufloat(param.Parameterized):
         q_prime = np.maximum(q_func(2), q_func(3))
         # needs to be larger than 1.2 p
         self.constraints['buckling'] = (q_prime, 1.2*p)
-                
+
     def _update_compressibilities(self):
 
         p = self.D['deployment']['depth'] *g*rho0
@@ -351,13 +374,11 @@ class ufloat(param.Parameterized):
         gamma = a/e/E*(5/2-2*nu) # 1/Pa
         gamma = gamma * self.D['options']['compressibility'] # set to 0 if option turned off
         self.D['hull']['mechanical_compressibility'] = gamma
-        gamma_water = 4.4e-10 # see:
-        # https://github.com/apatlpo/cognac/blob/master/float_simulations/ocean_water_properties.ipynb
         self.constraints['compressibility'] = (gamma_water, gamma)
 
         # thermal compressibility
         self.D['hull']['thermal_compressibility'] = 3*self.D['hull']['alpha']
-    
+
     def _update_line(self, figure_key, item, data, x, scale):
         #_d = self.D[item][data_key]
         _d = data
@@ -366,19 +387,19 @@ class ufloat(param.Parameterized):
         (self.renderers[figure_key][item]
          .data_source
          .data
-         .update({'x': x*1e2, 
+         .update({'x': x*1e2,
                   'y': _d*scale,
                   }
                 )
          )
-        
+
     @param.depends(*_params, watch=True)
     def update(self):
-        
+
         # update data containers
         self._update_dict_params()
         self._update_battery()
-        
+
         d, h, p, b, e, o = (self.D[i] for i in _items)
         t = self.D['total']
 
@@ -386,11 +407,12 @@ class ufloat(param.Parameterized):
         self._update_compressibilities()
         d['pressure'] = rho0 * g * d['depth']
         # below may not be right for very compressible floats
-        Gamma = abs(d['delta_rho']/rho0 
-                 - h['mechanical_compressibility']*d['pressure']
+        Gamma = abs(d['delta_rho']/rho0
+                 + (gamma_water - h['mechanical_compressibility'])
+                    *d['pressure']
                  )
-        ## with lambda
-        sigma = (np.pi*Gamma/p['lambda'] 
+        ## lambda = l_piston/l
+        sigma = (np.pi*Gamma/p['lambda']
                  *d['pressure']
                  *p['speed']/p['efficiency']
                  )
@@ -398,47 +420,33 @@ class ufloat(param.Parameterized):
         caps_mass = caps_mass * o['cap'] # turn off if option not set
         h['volume'] = ( caps_mass
                        +d['T']*sigma/b['edensity']*h['radius']**2
-                       +d['T']*e['c']/b['edensity'] 
+                       +d['T']*e['c']/b['edensity']
                        + e['mass']
                       ) \
-                      /( rho0 
+                      /( rho0
                          - 2*h['thickness']/h['radius']*h['density']
                          - p['density'] * Gamma
                        )
-        ## l_p held fixed:
-        # sigma = (Gamma/p['length'] 
-        #          *d['pressure']
-        #          *p['speed']/p['efficiency']
-        #          )
-        # h['volume'] = ( (2.*np.pi*h['radius']**2*h['cap_thickness']*h['density']
-        #                  +d['T']*e['c']/b['edensity'] 
-        #                  + e['mass']
-        #                  )
-        #                 /( rho0 
-        #                   - 2*h['thickness']/h['radius']*h['density']
-        #                   - p['density'] * Gamma
-        #                   - d['T']*sigma/b['edensity']
-        #                   )
-        #                )
+        # negative volumes are flagged
         h['volume'][np.where(h['volume']<0)] = np.NaN
-        
-        # propagate volume 
+
+        # propagate volume
         h['length'] = h['volume']/(np.pi*h['radius']**2)
-        
+
         # piston radius
         p['length'] = p['lambda']*h['length'] # if lambda is used
         p['radius'] = np.sqrt(h['length']/p['length'] * Gamma) * h['radius']
-        
+
         # piston conssumption
         p['c'] =  (rho0 * g * d['depth']
-                   * np.pi * p['radius']**2 
+                   * np.pi * p['radius']**2
                    * p['speed']/p['efficiency']
                    )
 
         # battery mass
         b['mass'] = d['T']*(e['c']+p['c'])/b['edensity']
         b['volume'] = b['mass']/b['density']
-        
+
         # other parameters
         h['mass'] = (2.*np.pi*h['radius']*h['thickness']*h['length']
                      *h['density']
@@ -460,21 +468,22 @@ class ufloat(param.Parameterized):
 
         # update plots
         for _p in ['hull', 'piston', 'battery', 'electronics', 'total']:
-            self._update_line('volume', _p, self.D[_p]['volume'], 
+            self._update_line('volume', _p, self.D[_p]['volume'],
                               h['radius'], 1e3)
         #
         for _p in ['hull', 'piston', ]:
-            self._update_line('length', _p+'_radius', self.D[_p]['radius'], 
+            self._update_line('length', _p+'_radius', self.D[_p]['radius'],
                               h['radius'], 1e2)
-            self._update_line('length', _p+'_length', self.D[_p]['length'], 
+            self._update_line('length', _p+'_length', self.D[_p]['length'],
                               h['radius'], 1e2)
         (self.renderers['length']['hull_radius_gamma']
-         .data_source.data.update({'x': h['radius']*1e2, 
+         .data_source.data.update({'x': h['radius']*1e2,
                                    'y': np.sqrt(Gamma)*h['radius']*1e2}
                                   )
         )
         # manually adjust y range
-        _ylim = (0., 3.*np.nanmax(p['radius'])*1e2)
+        #_ylim = (0., 3.*np.nanmax(p['radius'])*1e2)
+        _ylim = (0., min(100, np.nanmax(h['length'])*1e2))
         self.figures.children[1].children[2][0].y_range = Range1d(*_ylim)
         #
         for _p in ['hull', 'battery', 'total']:
@@ -489,7 +498,7 @@ class ufloat(param.Parameterized):
             )
         #
         (self.renderers['speed']['maxspeed']
-         .data_source.data.update({'x': h['radius']*1e2, 
+         .data_source.data.update({'x': h['radius']*1e2,
                                    'y': max_speed*1e2})
         )
 
@@ -503,7 +512,7 @@ class ufloat(param.Parameterized):
                          pn.Row(w[3], w[4], w[5]),
                          self.variables_view,
                         )
-    
+
     def _widgets_panel(self):
         return (pn.Column('### {}'.format('Deployment'),
                           pn.panel(self.param.d_depth),
@@ -539,7 +548,7 @@ class ufloat(param.Parameterized):
                         ),
                )
 
-def line(f, c, l, **kwargs): 
+def line(f, c, l, **kwargs):
     ''' shortcut for bokeh line creation
     '''
     kdefault = {'color': c,
@@ -549,7 +558,7 @@ def line(f, c, l, **kwargs):
     kdefault.update(kwargs)
     return f.line([],[], **kdefault)
 
-_part_colors = {'deployment': 'orange', 
+_part_colors = {'deployment': 'orange',
                 'hull': 'cadetblue',
                 'piston': 'lightgreen',
                 'electronics': 'salmon',
@@ -557,11 +566,11 @@ _part_colors = {'deployment': 'orange',
                }
 
 def build_graph(f, name='float design'):
-        
+
     # central graph
     g = Graph(name)
     #g.attr(compound='true') # to make subgraph: https://github.com/xflr6/graphviz/blob/master/examples/notebook.ipynb
-    g.attr(rankdir='RL', size='15,15')        
+    g.attr(rankdir='RL', size='15,15')
 
     params = [p for p in f._params if p not in ['b_lithium', 'b_cell']]
     for p in params:
@@ -569,7 +578,7 @@ def build_graph(f, name='float design'):
         color = _part_colors[part]
         g.attr('node', shape='ellipse', style='filled', color=color)
         g.node(part+' '+'_'.join(p.split('_')[1:]))
-    
+
     # gamma
     #var = 'gamma'
     #d.append(var)
@@ -604,9 +613,9 @@ def build_graph(f, name='float design'):
     g.node(var)
     for v in ['deployment delta_rho',  'hull density', 'hull radius', 'hull thickness',
               'piston density',
-              'battery mass', 
+              'battery mass',
               'electronics mass',
              ]:
         g.edge(var, v)
-    
+
     return g
