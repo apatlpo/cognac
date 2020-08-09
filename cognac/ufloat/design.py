@@ -9,8 +9,6 @@ from bokeh.models import Range1d, Span
 import panel as pn
 #pn.extension('plotly')
 
-from graphviz import Graph
-
 g = 9.81 # m/s^2
 MPa = 1e6 # Pa
 
@@ -557,6 +555,11 @@ def line(f, c, l, **kwargs):
                 }
     kdefault.update(kwargs)
     return f.line([],[], **kdefault)
+
+
+# ------------------------------ design graph ----------------------------------
+
+from graphviz import Graph
 
 _part_colors = {'deployment': 'orange',
                 'hull': 'cadetblue',
