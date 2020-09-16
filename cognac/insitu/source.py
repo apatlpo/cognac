@@ -10,12 +10,41 @@ from .arecorder import *
 
 source_attrs = ['gps', 'emission']
 
+def load_emission_sequence(path):
+    files = sorted(glob(path+'son*.wav'),
+                   key=lambda x: int(re.match('\D*(\d+)', x.split('/')[-1]).group(1)))
+    sequence = [Signal.from_wav(f) for f in files]
+    #if len(sequence)==
+    fs = set([s.fs for s in sequence])
+    return sequence, fs
+
+def load_source_files(path, ignore=[], verbose=-1):
+    if path:
+        files = sorted([os.path.join(w[0],f) for w in os.walk(path)
+                        for f in w[2] if '.txt' in f]
+                       )
+        files = [f for f in files if f not in ignore]
+    sdata = source_rtsys()
+    for f in files:
+        sdata += source_rtsys(f, verbose=verbose)
+    return sdata
+
 class source_rtsys(object):
     ''' Data container for rtsys acoustical source log
     '''
-    def __init__(self, file=None, verbose=-1):
-        if file is not None:
+    def __init__(self, file=None, clean=True, verbose=-1):
+        if file:
             self.gps, self.emission = read_log_file(file, verbose)
+        else:
+            return
+        if clean:
+            self.clean()
+
+    def __bool__(self):
+        if hasattr(self,'gps') and hasattr(self,'emission'):
+            if self.gps and self.emission:
+                return True
+        return False
 
     def __add__(self, other):
         if hasattr(self, 'gps') and hasattr(self, 'emission'):
@@ -36,18 +65,27 @@ class source_rtsys(object):
             selfc.trim(t0,t1)
             return selfc
 
-    def clean(self, d, inplace=True):
+    def clean_deployment(self, d, inplace=True):
         '''Use deployment to clean gps data'''
         if inplace:
             self.trim(d.start.time, d.end.time)
         else:
             return self.trim(d.start.time, d.end.time, inplace=False)
 
+    def clean(self):
+        """ wrapper around sort, drop_duplicates, compute_velocity
+        """
+        self.sort()
+        self.drop_duplicates()
+        self.gps.compute_velocity()
+
     def sort(self):
         self.gps.sort()
         self.emission.sort()
 
     def drop_duplicates(self):
+        if not self:
+            return
         d = (self.gps.d.reset_index().drop_duplicates(subset='time')
                  .set_index('time'))
         self.gps.d = d
@@ -57,13 +95,13 @@ class source_rtsys(object):
 
     #
     def to_pickle(self, file):
-        dictout = {key: getattr(self,key) for key in gps_attrs}
+        dictout = {key: getattr(self,key) for key in source_attrs}
         pickle.dump( dictout, open( file, 'wb' ) )
         print('Data store to '+file)
 
     def _read_pickle(self, file):
         p = pickle.load( open( file, 'rb' ) )
-        for key in gps_attrs:
+        for key in source_attrs:
             setattr(self, key, p[key])
 
 
@@ -104,7 +142,8 @@ def read_log_file(file, verbose):
     cycle_time = -1
     max_idx = -1
     idx_son=-1
-    t_nan = datetime.datetime(1, 1, 1, 0, 0, 0)
+    #t_nan = datetime.datetime(1, 1, 1, 0, 0, 0)
+    t_nan = pd.NaT
     pps_sync_date = t_nan
 
     # init final arrays
@@ -142,7 +181,7 @@ def read_log_file(file, verbose):
                         pass
                 # sync_timer is the number of sync achieved since last emission
                 sync_timer += 1
-                if verbose>0: print('sync_timer='+str(sync_timer))
+                if verbose>1: print('sync_timer='+str(sync_timer))
             pps_delta_sync = date
             # store date
             year = int(line.split(' ')[3].split('T')[0].split('-')[0])
@@ -152,13 +191,16 @@ def read_log_file(file, verbose):
             m = int(line.split(' ')[3].split('T')[1].replace('Z', '').split(':')[1])
             s = int(line.split(' ')[3].split('T')[1].replace('Z', '').split(':')[2])
             #pps_sync_date = date2num(datetime.datetime(year, month, day, h, m, s))
-            pps_sync_date = datetime.datetime(year, month, day, h, m, s)
+            #pps_sync_date = datetime.datetime(year, month, day, h, m, s)
+            pps_sync_date = pd.Timestamp(year, month, day, h, m, s)
         if "PPS :: idle" in line:
             # debug: once sync is done, checks that sync is activated
             #print Fore.GREEN, i, line
             pass
         if "GPS :: $GNRMC" in line:
             # GPS data
+            if verbose>0:
+                print(line)
             if line.split(',')[2] == 'V' and gps_sync_start == -1:
                 # no coordinates available
                 if gps_sync_stop == -1 and gps_sync_start == -1:
@@ -168,7 +210,7 @@ def read_log_file(file, verbose):
                     m = int( (time - h * 10000) / 100 )
                     s = int( time - h * 10000 - m * 100 )
                     gps_sync_start = h * 3600 + m * 60 + s
-                    if verbose>0: print(i, "(GPS sync start)", line)
+                    if verbose>1: print(i, "(GPS sync start)", line)
                     #
                     if line.split(',')[9] is not '':
                         date = float(line.split(',')[9])
@@ -177,7 +219,7 @@ def read_log_file(file, verbose):
                         year = 2000+int( date-day*1e4-month*1e2 )
                     #
                 if gps_sync_stop != -1:
-                    if verbose>0: print(i, "(GPS sync lost!)", line)
+                    if verbose>1: print(i, "(GPS sync lost!)", line)
             if line.split(',')[2] == 'A':
                 # coordinates available
                 time = float(line.split(',')[1])
@@ -200,18 +242,19 @@ def read_log_file(file, verbose):
                 # store data
                 #time = date2num(datetime.datetime(year, month, day, h, m, s))
                 time = datetime.datetime(year, month, day, h, m, s)
+
                 gp.add(lon, lat, time)
                 #
                 if gps_sync_stop == -1:
                     gps_sync_stop = h * 3600 + m * 60 + s
-                    if verbose>0: print(i, "(GPS sync done)", line, "(Took %.2f seconds)" % ( \
+                    if verbose>1: print(i, "(GPS sync done)", line, "(Took %.2f seconds)" % ( \
                     gps_sync_stop - gps_sync_start))
                 #
         if "DSP :: Transmission done" in line:
             # this is when the sound is produced
             # checks that the sound a synchronisation occurred since last emission
             if sync_timer != 1 and cycle_time != -1:
-                if verbose>0: print(i, line,
+                if verbose>1: print(i, line,
                 "(ERROR detected wrong cycle time: %ds)" % (cycle_time * sync_timer))
             sync_timer = 0
         if "WAV :: Reading" in line:
@@ -226,17 +269,17 @@ def read_log_file(file, verbose):
                 # first emissions
                 if idx != 0:
                     # first sound should be 0
-                    if verbose>0: print(i, line, "(Error idx should be 0)")
+                    if verbose>1: print(i, line, "(Error idx should be 0)")
             else:
                 # following emissions
                 good_value = (current_idx + 1) % (max_idx + 1)
                 if idx != good_value and verbose>-1:
-                    if verbose>0: print(i, line, "(Error idx should be %d)" % good_value)
+                    if verbose>1: print(i, line, "(Error idx should be %d)" % good_value)
             current_idx = idx
             # store sound and time
             e_time.append(pps_sync_date)
             e_sound.append(idx)
-            if idx != idx_son and verbose>-1:
+            if idx != idx_son and verbose>0:
                 print(i, line, idx_son, 'Error repondeur and wav reading line do not match')
 
     # find coordinates corresponding to emission time
@@ -259,11 +302,3 @@ def read_log_file(file, verbose):
         edata.d = edata.d.loc[edata['time']!=t_nan]
 
     return gp, edata
-
-def load_emission_sequence(path):
-    files = sorted(glob(path+'son*.wav'),
-                   key=lambda x: int(re.match('\D*(\d+)', x.split('/')[-1]).group(1)))
-    sequence = [Signal.from_wav(f) for f in files]
-    #if len(sequence)==
-    fs = set([s.fs for s in sequence])
-    return sequence, fs

@@ -7,10 +7,11 @@ bash
 conda update conda
 conda create -n cognac -c conda-forge \
     python=3.8 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
-    hvplot geoviews datashader nodejs \
+    hvplot geoviews datashader nodejs folium \
     cartopy gsw cmocean
 conda activate cognac
 pip install pynmea2
+pip install geojsoncontour
 conda install ffmpeg
 pip install graphviz
 pip install git+https://github.com/python-acoustics/python-acoustics.git
@@ -96,7 +97,7 @@ conda install packagename
 ```
 Remove conda
 ```
-rm -rf /home/machine/username/miniconda3 
+rm -rf /home/machine/username/miniconda3
 ```
 where machine is the name of your computer and username is your username.
 
@@ -125,5 +126,3 @@ Exporting environment
 conda env export --from-history | cut -f 1 -d '=' > environment.yml
 conda env create -f environment.yml -n $ENV_NAME on the new machine
 ```
-
-

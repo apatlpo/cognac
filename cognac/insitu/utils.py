@@ -148,6 +148,10 @@ class campaign(object):
                 setattr(self, key, cp[key])
             else:
                 setattr(self, key, value)
+                
+        if self.lon_lim and self.lat_lim:
+            self.lon_mid = (self.lon_lim[0]+self.lon_lim[1])*.5
+            self.lat_mid = (self.lat_lim[0]+self.lat_lim[1])*.5
 
         if 'pathp' in cp:
             self.pathp = cp['pathp']
@@ -167,7 +171,7 @@ class campaign(object):
                     self._units[i]._skip.append(d[1:])
 
     def __repr__(self):
-        print(self.name)
+        return self.name
 
     def __getitem__(self, item):
         if item in self._units:
@@ -256,14 +260,14 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
             shp.geometries(), crs, edgecolor='black', facecolor='none')
     elif coast=='med':
         # conda install -c conda-forge gdal
-        # ogr2ogr -f "ESRI Shapefile" med_coast.shp /Users/aponte/.local/share/cartopy/shapefiles/gshhs/h/GSHHS_h_L1.shp -clipsrc 6 7 42.5 43.5
-        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_coast')
+        # ogr2ogr -f "ESRI Shapefile" med_coast.shp /Users/aponte/.local/share/cartopy/shapefiles/gshhs/h/GSHHS_h_L1.shp -clipsrc 5 42. 7 44.
+        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_coast.shp')
         for record, geometry in zip(shp.records(), shp.geometries()):
             ax.add_geometries([geometry], crs, facecolor='None', edgecolor='black')
     elif coast=='med_high':
         # conda install -c conda-forge gdal
         # ogr2ogr -f "ESRI Shapefile" med_high_coast.shp ../coastlines/lines.shp -clipsrc 6 7 42.5 43.5
-        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_high_coast')
+        shp = shapereader.Reader(os.getenv('HOME')+'/data/OSM/med/med_high_coast.shp')
         for record, geometry in zip(shp.records(), shp.geometries()):
             ax.add_geometries([geometry], crs, facecolor='None', edgecolor='black')
 
@@ -272,8 +276,9 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
 def plot_bathy(fac):
     fig, ax, crs = fac
     ### GEBCO bathymetry
-    bathy = os.getenv('HOME') + \
-            '/data/bathy/RN-1994_1473924981206/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
+    #bfile = 'gebco0/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
+    bfile = 'gebco1/gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
+    bathy = os.getenv('HOME') + '/data/bathy/' + bfile
     ds = xr.open_dataset(bathy)
     cs = ax.contour(ds.lon, ds.lat, ds.elevation, [-2000., -1000., -500., -200., -100.],
                     linestyles='-', colors='black', linewidths=0.5, )

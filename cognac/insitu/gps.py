@@ -36,6 +36,12 @@ class gps(object):
         self.d = self.d.append(other.d)
         return self
 
+    def __bool__(self):
+        return not self.empty()
+
+    def empty(self):
+        return self.d.empty
+
     def add(self, lon, lat, time, sort=False):
         if not isinstance(lon,list): lon=[lon]
         if not isinstance(lat,list): lat=[lat]
@@ -51,7 +57,11 @@ class gps(object):
     def trim(self, t0, t1, inplace=True):
         ''' select data between t0 and t1 '''
         if inplace:
-            self.d = self.d[t0:t1]
+            # beware of exact time indexing:
+            # https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#exact-indexing
+            #self.d = self.d[t0:t1]
+            time = self.d.index
+            self.d = self.d.loc[(time > t0) & (time <= t1)]
         else:
             gp = copy.deepcopy(self)
             gp.trim(t0,t1)
@@ -77,6 +87,8 @@ class gps(object):
 
     #
     def compute_velocity(self):
+        if not self:
+            return
         dl = get_distance(self.d['lon'] , self.d['lat'],
                           self.d['lon'].shift(periods=1),
                           self.d['lat'].shift(periods=1))
@@ -100,7 +112,7 @@ class gps(object):
             setattr(self, key, p[key])
 
     #
-    def plot(self, ax, label='', linestyle='-', lw=2.,
+    def plot(self, fac=None, ax=None, label='', linestyle='-', lw=2.,
              t0=None, t1=None, ll_lim=None,
              **kwargs):
         lon, lat = self.d['lon'], self.d['lat']
@@ -110,6 +122,10 @@ class gps(object):
         if t1 is not None:
             lon = lon[:t1]
             lat = lat[:t1]
+        if fac:
+            ax = fac[1]
+        else:
+            ax = plt.subplot(111)
         if ll_lim is None:
             ll_lim = ax.get_extent()
         ax.plot(lon, lat, lw=lw, linestyle=linestyle, **kwargs)
@@ -218,13 +234,13 @@ class gps(object):
             self.fill_with_d(d)
 
 
-def read_gps_tois(file, verbose=False):
+def read_gps_alees(file, verbose=False):
 
     # init gps container
     gp = gps()
     if isinstance(file, list):
         for f in file:
-            gp = gp + read_gps_tois(f)
+            gp = gp + read_gps_alees(f, verbose=verbose)
     else:
         print('Reads ' + file)
         gpsfile = pynmea2.NMEAFile(file)
@@ -232,10 +248,13 @@ def read_gps_tois(file, verbose=False):
         for d in gpsfile:
             if verbose:
                 print(d)
-            time = datetime.datetime.combine(d.datestamp, d.timestamp)
-            data = data.append({'lon': d.longitude, 'lat': d.latitude,
-                                'time': time},
-                                ignore_index=True)
+            if all([d.datestamp, d.timestamp]):
+                time = datetime.datetime.combine(d.datestamp, d.timestamp)
+                data = data.append({'lon': d.longitude,
+                                    'lat': d.latitude,
+                                    'time': time
+                                    },
+                                    ignore_index=True)
         #
         gp.d = data.set_index('time')
 
