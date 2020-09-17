@@ -17,7 +17,7 @@ from bokeh.plotting import figure
 
 import pickle
 
-ctd_attrs = ['d', 'file', 'start_date', 'dt']
+ctd_attrs = ['d_time', 'd_depth', 'file', 'start_date', 'dt']
 
 class ctd(object):
     """ Contains CTD cast data
@@ -27,7 +27,7 @@ class ctd(object):
             self.file = file
             if '.cnv' in file:
                 self._file_striped = self.file.rstrip('.cnv')
-                self.d = self._read_cnv(file, **kwargs)
+                self.d_time = self._read_cnv(file, **kwargs)
                 self._read_cnv_header(file)
             elif '.p' in file:
                 self._file_striped = self.file.rstrip('.p')
@@ -36,30 +36,45 @@ class ctd(object):
             print('You need to provide a file name')
 
     def __str__(self):
-        return self.d.__str__()
+        if hasattr(self, 'd_depth'):
+            return self.d_depth.__str__()
+        else:
+            return self.d_time.__str__()
 
     def __getitem__(self, item):
         if item=='time':
             # time or depth?
-            return self.d.index
-        elif item=='pressure' and 'pressure' not in self.d:
-            return self.d.index
+            return self.d_time.index
+        if hasattr(self, 'd_depth'):
+            _d = self.d_depth
         else:
-            return getattr(self.d, item)
+            _d = self.d_time
+        return _d[item]
 
     # IO
     def _read_cnv(self, file, **kwargs):
+        if 'columns' in kwargs:
+            columns = kwargs['columns']
+        else:
+            columns = ['sample','pressure','temperature',
+                       'salinity','conductivity','flag'
+                       ]
+        #
         d = pd.read_table(file,
-                             names=['sample','pressure','temperature',
-                                    'salinity','conductivity','flag'],
-                             comment='#', delim_whitespace=True,
-                             index_col=0, **kwargs)
+                          names=columns,
+                          comment='#', delim_whitespace=True,
+                          index_col=0,
+                          )
         d = d[~d.index.str.contains("\*")]
-        dtypes = {'pressure': np.float64, 'temperature': np.float64,
-                  'salinity': np.float64, 'conductivity': np.float64,
-                  'flag': np.float64}
-        for key, value in dtypes.items():
-            setattr(d, key, getattr(d, key).astype(value))
+        for c in columns:
+            if c!='sample':
+                d[c] = d[c].astype(np.float64)
+        #dtypes = {c: np.float64 if }
+        #dtypes = {'pressure': np.float64, 'temperature': np.float64,
+        #          'salinity': np.float64, 'conductivity': np.float64,
+        #          'flag': np.float64}
+        #for key, value in dtypes.items():
+        #        setattr(d, key, getattr(d, key).astype(value))
         d.index = d.index.astype(int)
         #encoding='iso-8859-1' # decimal='.',
         # dtype={'temp': np.float64} is ignored if passed to read_table
@@ -80,9 +95,9 @@ class ctd(object):
                         self.dt = float(line.split(':')[1].strip())
         # compute time line
         if hasattr(self,'start_date') and hasattr(self,'dt'):
-            self.d['time'] = self.start_date \
-                + pd.to_timedelta(self.d.index * self.dt, unit='s')
-            self.d.set_index('time', inplace=True)
+            self.d_time['time'] = self.start_date \
+                + pd.to_timedelta(self.d_time.index * self.dt, unit='s')
+            self.d_time.set_index('time', inplace=True)
 
     #
     def to_pickle(self, file):
@@ -96,65 +111,96 @@ class ctd(object):
             setattr(self, key, p[key])
 
     # cleaning and resampling
-    def resample(self, *args, **kwargs):
+    def resample(self, rule, inplace=True, **kwargs):
         # should add option to compute in place or not
-        self.d = self.d.resample(*args, **kwargs).mean()
-        self._update_time_info()
+        _d = self.d_time.resample(rule=rule, **kwargs).mean()
+        if inplace:
+            self.d_time = _d
+            self._update_time_info()
+        else:
+            return _d
 
     def _update_time_info(self):
-        self.dt = (self.d.index[1]-self.d.index[0]).total_seconds()
-        self.start_date = self.d.index[0]
+        self.dt = (self.d_time.index[1]-self.d_time.index[0]).total_seconds()
+        self.start_date = self.d_time.index[0]
 
-    def clean_and_depthbin(self, dp=1, plot=False):
+    def clean_and_depth_bin(self,
+                            bin_size=1,
+                            ):
         ''' select descent and bin by depth
         '''
         # compute speed of descent
-        dpdt = self.d.pressure.diff()/self.dt
+        _d = self.d_time
+        dpdt = _d.pressure.diff()/self.dt
         threshold = .2 # dbar/s
-        self.d = self.d[dpdt>threshold]
+        self.d_time = _d[dpdt>threshold]
         self._update_time_info()
         #
-        p = np.round(self.d.pressure/dp)
-        self.d = self.d.groupby(by=p).mean()
-        del self.d['pressure']
+        p = np.round(_d.pressure/bin_size)
+        self.d_depth = _d.groupby(by=p).mean()
+        del self.d_depth['pressure']
+        self.d_depth = self.d_depth[self.d_depth.index>=0]
         #
-        if plot:
-            dpdt.plot()
-            dpdt[dpdt>threshold].plot(color='orange')
+        self._update_eos()
 
     # EOS
     def _update_eos(self):
-        pass
+        assert hasattr(self, 'd_depth'), \
+                'You need to run clean_and_depth_bin first'
+        d = self.d_depth
+        d['SA'] = gsw.SA_from_SP(d.salinity, d.index, d.longitude, d.latitude)
+        d['CT'] = gsw.CT_from_t(d.SA, d.temperature, d.index)
+        d['sound_speed'] = gsw.sound_speed(d.SA, d.CT, d.index)
 
     # plotting
-    def plot(self, **kwargs):
-        #self.d.plot(**kwargs)
+    def plot_tseries(self):
+        d = self.d_time[['pressure','temperature','salinity']]
+        d.plot(lw=1,
+               subplots=True,
+               grid=True,
+               layout=(2,3),
+               figsize=(10,10)
+               )
+
+    def plot_depth(self,
+                   variables=['temperature','salinity', 'sound_speed'],
+                   figsize=(15,7),
+                   grid=True,
+                   **kwargs
+                   ):
+
+        assert hasattr(self, 'd_depth'), \
+                'You need to run clean_and_depth_bin first'
+
+        d = self.d_depth[variables]
+
         Nx = 4
-        Ny = int(np.ceil(((self.d).shape[1]-1)/Nx))
+        Ny = int(np.ceil(((d).shape[1]-1)/Nx))
         i=1
-        plt.figure(figsize=(15,7))
-        for name, series in self.d.iteritems():
+        plt.figure(figsize=(20,7))
+        for name, series in d.iteritems():
             if not name in ['pressure', 'z']:
                 ax = plt.subplot(Ny, Nx, i)
-                ax.plot(series, -self.d.index)
+                ax.plot(series, -d.index, **kwargs)
                 ax.set_xlabel(name)
+                if grid:
+                    ax.grid()
                 i+=1
-        plt.show()
 
     def plot_bk(self):
 
         output_notebook()
         TOOLS = 'pan,wheel_zoom,box_zoom,reset,help'
 
-        _d = self.d
+        _d = self.d_depth
         _d['z'] = -_d.index # approx
 
         # create a new plot and add a renderer
         s1 = figure(tools=TOOLS, plot_width=300, plot_height=300, title=None)
         s1.line('temperature', 'z', source=_d)
         s1.add_tools(HoverTool(
-            tooltips=[('z','@z{%0.1f}'),('temperature','@{temperature}{%0.4f}'),],
-            formatters={'z': 'printf','temperature' : 'printf',},
+            tooltips=[('z','@z{0.0f}'),('temperature','@{temperature}{0.0000f}'),],
+            formatters={'@z': 'printf','@temperature' : 'printf',},
             mode='hline'
             ))
 
@@ -162,8 +208,8 @@ class ctd(object):
                     y_range=s1.y_range)
         s2.line('salinity', 'z', source=_d)
         s2.add_tools(HoverTool(
-            tooltips=[('z','@z{%0.1f}'),('salinity','@{salinity}{%0.4f}'),],
-            formatters={'z': 'printf','salinity' : 'printf',},
+            tooltips=[('z','@z{0.0f}'),('salinity','@{salinity}{0.0000f}'),],
+            formatters={'@z': 'printf','@salinity' : 'printf',},
             mode='hline'
             ))
 

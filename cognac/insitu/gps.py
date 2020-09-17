@@ -9,6 +9,9 @@ import copy
 
 import matplotlib.pyplot as plt
 from  matplotlib.dates import date2num, datetime, num2date
+from matplotlib.colors import cnames
+
+import folium
 
 from bokeh.io import output_notebook, show
 from bokeh.layouts import gridplot
@@ -17,13 +20,27 @@ from bokeh.plotting import figure
 
 from .utils import get_distance
 
-gps_attrs = ['d']
+gps_attrs = ['label', 'd']
 
 class gps(object):
     ''' Data container for gps data
     '''
-    def __init__(self, lon=[], lat=[], time=[]):
+    def __init__(self,
+                 lon=None, lat=None, time=None,
+                 file=None,
+                 label='gps',
+                 ):
+        self.label = label
+        #
+        if file is not None:
+            # assumes a pickle file
+            self._read_pickle(file)
+            return
+        #
         self.d = pd.DataFrame()
+        if lon is not None and lat is not None and time is not None:
+            for _lon, _lat, _time in zip(lon, lat, time):
+                self.add(_lon, _lat, _time)
 
     def __getitem__(self, item):
         if item=='time':
@@ -78,6 +95,20 @@ class gps(object):
         self.d.sort_index(inplace=True)
 
     def resample(self, rule, inplace=False, **kwargs):
+        ''' temporal resampling
+        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.resample.html
+
+        Parameters
+        ----------
+        rule: DateOffset, Timedelta or str
+            Passed to pandas.DataFrame.resample, examples:
+                - '10T': 10 minutes
+                - '10S': 10 seconds
+        inplace: boolean, optional
+            turn inplace resampling on, default is False
+        kwargs:
+            passed to resample
+        '''
         if inplace:
             self.d = self.d.resample(rule, **kwargs).mean()
         else:
@@ -85,20 +116,61 @@ class gps(object):
             gp.resample(rule, inplace=True, **kwargs)
             return gp
 
+    def join(self, other, rule):
+        ''' Resample and join 2 gps objects
+        Returns a dataframe
+        '''
+        assert self.label is not other.label, 'labels must differ'
+        # update velocity fields
+        self.compute_velocity()
+        other.compute_velocity()
+        # resample
+        d_resampled = self.resample(rule).d
+        other_resampled = other.resample(rule).d
+        d = d_resampled.join(other_resampled,
+                           how='outer',
+                           lsuffix='_'+self.label,
+                           rsuffix='_'+other.label,
+                           )
+        # add separation and its time rate of change
+        s = (get_distance(d['lon_'+self.label],
+                          d['lat_'+self.label],
+                          d['lon_'+other.label],
+                          d['lat_'+other.label],
+                          )
+             .rename('separation')
+             )
+        ds = s.diff()
+        dt = pd.Series(d.index).diff().dt.total_seconds()
+        dt.index = ds.index
+        v = (ds/dt).rename('separation_velocity')
+        d = pd.concat([d, s, v], axis=1)
+        # reorder columns
+        d = d.reindex(sorted(d.columns), axis=1)
+        return d
+
     #
-    def compute_velocity(self):
+    def compute_velocity(self, inplace=True):
         if not self:
             return
-        dl = get_distance(self.d['lon'] , self.d['lat'],
-                          self.d['lon'].shift(periods=1),
-                          self.d['lat'].shift(periods=1))
-        dt = pd.Series(self.d.index).diff().dt.total_seconds()
+        d = self.d
+        # remove duplicates
+        d = d[~d.index.duplicated(keep='first')]
+        #
+        dl = get_distance(d['lon'],
+                          d['lat'],
+                          d['lon'].shift(periods=1),
+                          d['lat'].shift(periods=1))
+        dt = pd.Series(d.index).diff().dt.total_seconds()
         dt.index = dl.index
         v = (dl/dt).rename('velocity')
+        if not inplace:
+            return v
         if 'velocity' in self.d:
             self.d.update(v)
         else:
-            self.d = pd.concat([self.d,v], axis=1)
+            self.d = pd.concat([d, v], axis=1)
+
 
     #
     def to_pickle(self, file):
@@ -112,8 +184,14 @@ class gps(object):
             setattr(self, key, p[key])
 
     #
-    def plot(self, fac=None, ax=None, label='', linestyle='-', lw=2.,
-             t0=None, t1=None, ll_lim=None,
+    def plot(self,
+             fac=None,
+             label='',
+             linestyle='-',
+             lw=2.,
+             t0=None,
+             t1=None,
+             ll_lim=None,
              **kwargs):
         lon, lat = self.d['lon'], self.d['lat']
         if t0 is not None:
@@ -124,21 +202,48 @@ class gps(object):
             lat = lat[:t1]
         if fac:
             ax = fac[1]
+            if ll_lim is None:
+                ll_lim = ax.get_extent()
         else:
             ax = plt.subplot(111)
-        if ll_lim is None:
-            ll_lim = ax.get_extent()
+            if ll_lim is None:
+                ll_lim = [min(lon)-.1, max(lon)+.1, min(lat)-.1, max(lat)+.1]
         ax.plot(lon, lat, lw=lw, linestyle=linestyle, **kwargs)
         if 'marker' in kwargs:
             del kwargs['marker']
-        ax.scatter(lon[0], lat[0], 10, marker='o', **kwargs)
-        ax.scatter(lon[-1], lat[-1], 10, marker='*', **kwargs)
-        xoffset = 0.01 * (ll_lim[1] - ll_lim[0])
-        yoffset = 0.01 * (ll_lim[3] - ll_lim[2])
+        ax.scatter(lon[0], lat[0], 20, marker='o', **kwargs)
+        ax.scatter(lon[-1], lat[-1], 20, marker='*', **kwargs)
+        xoffset = 0.05 * (ll_lim[1] - ll_lim[0])
+        yoffset = 0.05 * (ll_lim[3] - ll_lim[2])
         ax.text(lon[-1]+xoffset, lat[-1]-yoffset, label,
                 fontsize=9, **kwargs)
 
-    def plot_bk(self):
+    def plot_folium(self,
+                    m,
+                    label=None,
+                    rule='10T',
+                    color='k',
+                    ):
+        """ add trajectory to folium map
+        """
+        if label is None:
+            label = self.label
+        # resample data
+        d = self.resample(rule).d
+        #
+        for t, row in d.iterrows():
+            folium.Circle((row['lat'], row['lon']),
+                          tooltip=str(t),
+                          popup=folium.Popup(label+'<br>'+str(t),
+                                             max_width=150,
+                                             sticky=True),
+                          radius=1e2,
+                          color=cnames[color],
+                          fill=True,
+                         ).add_to(m)
+        return m
+
+    def plot_bk(self, unit=None, rule=None):
 
         if 'velocity' not in self.d:
             self.compute_velocity()
@@ -146,28 +251,68 @@ class gps(object):
         output_notebook()
         TOOLS = 'pan,wheel_zoom,box_zoom,reset,help'
 
-        _d = self.d
+        # line specs
+        lw = 3
+        c = 'black'
+
+        if rule is not None:
+            d = self.resample(rule).d
+        else:
+            d = self.d
+
+        def _add_start_end(s, y):
+            #_y = y.iloc[y.index.get_loc(_d.start.time), method='nearest')]
+            if unit is not None:
+                for _d in unit:
+                    s.line(x=[_d.start.time, _d.start.time],
+                           y=[y.min(), y.max()],
+                           color='cadetblue', line_width=2)
+                    s.line(x=[_d.end.time, _d.end.time],
+                           y=[y.min(), y.max()],
+                           color='salmon', line_width=2)
 
         # create a new plot and add a renderer
-        s1 = figure(tools=TOOLS, plot_width=300, plot_height=300, title=None,
-                      x_axis_type='datetime')
-        s1.line('time', 'lon', source=_d)
+        s1 = figure(tools=TOOLS,
+                    plot_width=300, plot_height=300,
+                    title='longitude',
+                    x_axis_type='datetime')
+        s1.line('time', 'lon', source=d, line_width=lw, color=c)
         s1.add_tools(HoverTool(
-            tooltips=[('time','@time{%T}'),('longitude','@{lon}{%0.3f}'),],
-            formatters={'time': 'datetime','longitude' : 'printf',},
+            tooltips=[('Time','@time{%F %T}'),('longitude','@{lon}{0.000f}'),],
+            formatters={'@time': 'datetime','@lon' : 'printf',},
             mode='vline'
             ))
+        _add_start_end(s1, d['lon'])
         #
-        s2 = figure(tools=TOOLS, plot_width=300, plot_height=300, title=None,
-                      x_axis_type='datetime', x_range=s1.x_range)
-        s2.line('time', 'velocity', source=_d)
+        s2 = figure(tools=TOOLS,
+                    plot_width=300, plot_height=300,
+                    title='latitude',
+                    x_axis_type='datetime',
+                    x_range=s1.x_range
+                    )
+        s2.line('time', 'lat', source=d, line_width=lw, color=c)
         s2.add_tools(HoverTool(
-            tooltips=[('time','@time{%T}'),('velocity','@{velocity}{%0.3f}'),],
-            formatters={'time': 'datetime','velocity' : 'printf',},
+            tooltips=[('Time','@time{%F %T}'),('latitude','@{lat}{0.000f}'),],
+            formatters={'@time': 'datetime','@lat' : 'printf',},
             mode='vline'
             ))
+        _add_start_end(s2, d['lat'])
+        #
+        s3 = figure(tools=TOOLS,
+                    plot_width=300, plot_height=300,
+                    title='speed',
+                    x_axis_type='datetime',
+                    x_range=s1.x_range
+                    )
+        s3.line('time', 'velocity', source=d, line_width=lw, color=c)
+        s3.add_tools(HoverTool(
+            tooltips=[('Time','@time{%F %T}'),('Velocity','@{velocity}{%0.000f}'),],
+            formatters={'@time': 'datetime','@velocity' : 'printf',},
+            mode='vline'
+            ))
+        _add_start_end(s3, d['velocity'])
 
-        p = gridplot([[s1, s2]])
+        p = gridplot([[s1, s2, s3]])
         show(p)
 
     def plot_chunks(self, map, linestyle='-', **kwargs):
@@ -234,10 +379,10 @@ class gps(object):
             self.fill_with_d(d)
 
 
-def read_gps_alees(file, verbose=False):
+def read_gps_alees(file, label='gps', verbose=False):
 
     # init gps container
-    gp = gps()
+    gp = gps(label=label)
     if isinstance(file, list):
         for f in file:
             gp = gp + read_gps_alees(f, verbose=verbose)

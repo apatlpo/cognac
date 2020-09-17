@@ -8,7 +8,7 @@ import pandas as pd
 from .gps import *
 from .arecorder import *
 
-source_attrs = ['gps', 'emission']
+source_attrs = ['label', 'gps', 'emission']
 
 def load_emission_sequence(path):
     files = sorted(glob(path+'son*.wav'),
@@ -18,13 +18,16 @@ def load_emission_sequence(path):
     fs = set([s.fs for s in sequence])
     return sequence, fs
 
-def load_source_files(path, ignore=[], verbose=-1):
+def load_source_files(path,
+                      label='source',
+                      ignore=[],
+                      verbose=-1):
     if path:
         files = sorted([os.path.join(w[0],f) for w in os.walk(path)
                         for f in w[2] if '.txt' in f]
                        )
         files = [f for f in files if f not in ignore]
-    sdata = source_rtsys()
+    sdata = source_rtsys(label=label)
     for f in files:
         sdata += source_rtsys(f, verbose=verbose)
     return sdata
@@ -32,9 +35,20 @@ def load_source_files(path, ignore=[], verbose=-1):
 class source_rtsys(object):
     ''' Data container for rtsys acoustical source log
     '''
-    def __init__(self, file=None, clean=True, verbose=-1):
+    def __init__(self,
+                 file=None,
+                 clean=True,
+                 label='source',
+                 verbose=-1):
+        self.label = label
+        #
         if file:
-            self.gps, self.emission = read_log_file(file, verbose)
+            if file.split('.')[-1] is 'p':
+                # pickle file
+                self._read_pickle(file)
+                return
+            else:
+                self.gps, self.emission = read_log_file(file, label, verbose)
         else:
             return
         if clean:
@@ -121,12 +135,12 @@ class emissions(gps):
         if sort:
             self.d = self.d.sortby('time')
 
-def read_log_file(file, verbose):
+def read_log_file(file, label, verbose):
 
     print('Reads '+file)
 
     # init gps container
-    gp = gps()
+    gp = gps(label=label)
 
     # open and read data
     fptr = open(file, 'r')

@@ -4,12 +4,19 @@ import csv, yaml
 import numpy as np
 import xarray as xr
 import pandas as pd
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from  matplotlib.dates import date2num, datetime, num2date
+from matplotlib.colors import cnames
 #from mpl_toolkits.basemap import Basemap
 import cartopy.crs as ccrs
 from cartopy.io import shapereader
-from  matplotlib.dates import date2num, datetime, num2date
+
+import folium
+from folium.plugins import MeasureControl, MousePosition
+import geojson
+
 import gsw
 from netCDF4 import Dataset
 
@@ -148,7 +155,7 @@ class campaign(object):
                 setattr(self, key, cp[key])
             else:
                 setattr(self, key, value)
-                
+
         if self.lon_lim and self.lat_lim:
             self.lon_mid = (self.lon_lim[0]+self.lon_lim[1])*.5
             self.lat_mid = (self.lat_lim[0]+self.lat_lim[1])*.5
@@ -187,8 +194,102 @@ class campaign(object):
         for key, value in self._units.items():
             yield key, value
 
-    def plot_overview(self):
-        pass
+    def add_legend(self, ax, labels=None, **kwargs):
+        """ Add legend for units on an axis
+        """
+        from matplotlib.lines import Line2D
+        if labels is None:
+            labels = list(self._units)
+        custom_lines = [Line2D([0], [0], color=self[label]['color'], lw=4)
+                        for label in labels
+                        ]
+        ax.legend(custom_lines, labels, **kwargs)
+
+    def map(self,
+            width='100%',
+            height='100%',
+            tiles='Cartodb Positron',
+            ignore_labels=[],
+            ):
+        ''' Plot overview map with folium
+
+        Parameters:
+        ----------
+
+        tiles: str
+            tiles used, see `folium.Map?``
+                - "OpenStreetMap"
+                - "Mapbox Bright" (Limited levels of zoom for free tiles)
+                - "Mapbox Control Room" (Limited levels of zoom for free tiles)
+                - "Stamen" (Terrain, Toner, and Watercolor)
+                - "Cloudmade" (Must pass API key)
+                - "Mapbox" (Must pass API key)
+                - "CartoDB" (positron and dark_matter)
+
+        '''
+
+        m = folium.Map(location=[self.lat_mid, self.lon_mid],
+                       width=width,
+                       height=height,
+                       zoom_start=11,
+                       tiles=tiles,
+                      )
+
+        # bathymetric contours
+        contours_geojson = load_bathy_contours()
+        tooltip = folium.GeoJsonTooltip(fields=['title'],
+                                        aliases=['depth'],
+                                        )
+        popup = folium.GeoJsonPopup(fields=['title'],
+                                    aliases=['depth'],
+                                    )
+        #colorscale = branca.colormap.linear.Greys_03.scale(levels[-1],levels[0])
+        def style_func(feature):
+            return {'color':   feature['properties']['stroke'], #colorscale(feature['properties']['level-value']),
+                    'weight':  3, #x['properties']['stroke-width'],
+                    #'fillColor': x['properties']['fill'],
+                    'opacity': 1.,
+                    #'popup': feature['properties']['title'],
+                   }
+        folium.GeoJson(contours_geojson,
+                       name='geojson',
+                       style_function=style_func,
+                       tooltip=tooltip,
+                       popup=popup,
+                       ).add_to(m)
+
+        # campaign details
+        for uname, u in self.items():
+            if uname not in ignore_labels:
+                for d in u:
+                    folium.Polygon([(d.start.lat, d.start.lon),
+                                    (d.end.lat, d.end.lon)
+                                    ],
+                                   tooltip=uname+' '+d.label+'<br>'
+                                            +str(d.start.time)+'<br>'
+                                            +str(d.end.time),
+                                   color=cnames[u['color']],
+                                   dash_array='10 20',
+                                   opacity=.5
+                                  ).add_to(m)
+                    folium.Circle((d.start.lat, d.start.lon),
+                                  tooltip=uname+' '+d.label+'<br>'
+                                            +str(d.start.time),
+                                  radius=2*1e2,
+                                  color=cnames[u['color']],
+                                 ).add_to(m)
+                    folium.Circle((d.end.lat, d.end.lon),
+                                  tooltip=uname+' '+d.label+'<br>'
+                                            +str(d.end.time),
+                                  radius=1e2,
+                                  color=cnames[u['color']],
+                                 ).add_to(m)
+
+        # useful plugins
+        MeasureControl().add_to(m)
+        MousePosition().add_to(m)
+
+        return m
 
     def load_data(self):
         ''' load processed data
@@ -211,7 +312,7 @@ def ll_degmin(l):
     return '%d deg %.5f' %(int(l), (l-int(l))*60.)
 
 def get_distance(lon1 , lat1 , lon2 , lat2):
-    ''' wrapper around distance calculator
+    ''' wrapper around distance calculator in meters
     '''
     if isinstance(lon1, list):
         lon1 = np.array(lon1)
@@ -240,10 +341,11 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
     else:
         fig.clf()
 
-    if cp is not None:
-        ll_lim = cp.lon_lim+cp.lat_lim
-    elif ll_lim is None:
-        ll_lim = _ll_lim_default
+    if ll_lim is None:
+        if cp is not None:
+            ll_lim = cp.lon_lim+cp.lat_lim
+        else:
+            ll_lim = _ll_lim_default
 
     ax = fig.add_subplot(111, projection=crs)
     ax.set_extent(ll_lim, crs=crs)
@@ -273,17 +375,45 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
 
     return [fig, ax, crs]
 
+
+# GEBCO bathymetry
+_bathy_file = os.getenv('HOME') + '/data/bathy/' \
+        'gebco1/gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
+_bathy_dir = '/'.join(_bathy_file.split('/')[:-1])
+
 def plot_bathy(fac):
     fig, ax, crs = fac
-    ### GEBCO bathymetry
     #bfile = 'gebco0/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
-    bfile = 'gebco1/gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
-    bathy = os.getenv('HOME') + '/data/bathy/' + bfile
-    ds = xr.open_dataset(bathy)
+    ds = xr.open_dataset(_bathy_file)
     cs = ax.contour(ds.lon, ds.lat, ds.elevation, [-2000., -1000., -500., -200., -100.],
                     linestyles='-', colors='black', linewidths=0.5, )
     plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
 
+def store_bathy_contours(contour_file='contours.geojson',
+                         levels=[0, 100, 500, 1000, 2000, 3000],
+                         ):
+    """ Store bathymetric contours as a geojson
+    The geojson may be used for folium plots
+    """
+    # Create contour data lon_range, lat_range, Z
+    depth = -xr.open_dataset(_bathy_file)['elevation']
+    contours = depth.plot.contour(levels=levels, cmap='gray_r')
+
+    # Convert matplotlib contour to geojson
+    from geojsoncontour import contour_to_geojson
+    contours_geojson = contour_to_geojson(
+                            contour=contours,
+                            geojson_filepath=os.path.join(bathy_dir,
+                                                          contour_file),
+                            ndigits=3,
+                            unit='m',
+                        )
+def load_bathy_contours(contour_file='contours.geojson'):
+    ''' load bathymetric contours as geojson
+    '''
+    with open(os.path.join(_bathy_dir,contour_file), 'r') as f:
+        contours = geojson.load(f)
+    return contours
 
 #
 # ------------------------- EOS wrappers -----------------------------------
