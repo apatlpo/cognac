@@ -80,21 +80,21 @@ class logger():
         colors = palette[10]
 
         _d = self._df
-                
+
         if gridded:
             col = 'black'
             def bfig(c, x_range):
-                s = figure(tools=TOOLS, 
-                           plot_width=width, 
+                s = figure(tools=TOOLS,
+                           plot_width=width,
                            plot_height=height,
-                           title=c, 
+                           title=c,
                            x_range=x_range)
-                s.line(_d['time']/60, _d[c], legend=c, 
+                s.line(_d['time']/60, _d[c], legend=c,
                        color=col, line_width=3)
                 return s
             c0 = next(c for c in _d.columns if c is not 'time')
             s = [bfig(c0, None)]
-            s = s+[bfig(c, s[0].x_range) for c in _d.columns 
+            s = s+[bfig(c, s[0].x_range) for c in _d.columns
                    if c not in ['time', c0]]
             grid = gridplot(s, ncols=2)
             show(grid)
@@ -105,7 +105,7 @@ class logger():
                         title=None)
             iters = ((_d[c],c) for c in _d.columns if c is not 'time')
             for c, col in zip(iters, colors):
-                s1.line(_d['time']/60, c[0], legend=c[1], 
+                s1.line(_d['time']/60, c[0], legend=c[1],
                         color=col, line_width=3)
             show(s1)
 
@@ -118,7 +118,7 @@ def plot_logs(logs,
               figsize=(12, 10)
               ):
     """ Standard plot of a deployment
-    
+
     Parameters:
     -----------
     logs: logger, dict
@@ -136,8 +136,8 @@ def plot_logs(logs,
         def _plot(ax, log, variable, name, scale=1., offset=0.):
             for key, c in zip(logs, cols):
                 t, _log = logs[key][log]['time'], logs[key][log]
-                ax.plot(t *sec2min, _log[variable]*scale + offset, 
-                        color=c, 
+                ax.plot(t *sec2min, _log[variable]*scale + offset,
+                        color=c,
                         label=name+' '+key)
         key = list(logs)[0]
         log0 = logs[key]
@@ -145,8 +145,8 @@ def plot_logs(logs,
         cols = 'k'
         def _plot(ax, log, variable, name, scale=1., offset=0.):
             t, _log = logs[log]['time'], logs[log]
-            ax.plot(t *sec2min, _log[variable]*scale + offset, 
-                    color=cols, 
+            ax.plot(t *sec2min, _log[variable]*scale + offset,
+                    color=cols,
                     label=name)
         log0 = logs
     t = log0['state']['time']
@@ -158,7 +158,7 @@ def plot_logs(logs,
     if z_target is not None:
         ax.plot(t *sec2min, z_target(t), color='b', label='target')
         if eta is not None:
-            ax.plot(t *sec2min, z_target(t) + eta(t), 
+            ax.plot(t *sec2min, z_target(t) + eta(t),
                     color='green', label='target+eta')
     ax.legend(loc=0)
     ax.set_ylabel('z [m]')
@@ -175,7 +175,7 @@ def plot_logs(logs,
                             facecolor='orange', alpha=.5)
         #
         if eta is not None:
-            ax.plot(t *sec2min, z_target(t) + eta(t), 
+            ax.plot(t *sec2min, z_target(t) + eta(t),
                     color='green', label='target+eta')
         _plot(ax, 'state', 'z', 'z', offset=-z_target(t))
         ax.legend()
@@ -185,7 +185,7 @@ def plot_logs(logs,
             ax.set_title(title)
         ax.grid()
         ax.yaxis.set_label_position('right')
-        ax.yaxis.tick_right()        
+        ax.yaxis.tick_right()
     #
     ax = axes[1,0]
     _plot(ax, 'state', 'w', 'dzdt', scale=1e2)
@@ -194,9 +194,10 @@ def plot_logs(logs,
     ax.grid()
     #
     ax = axes[1,1]
-    _plot(ax, 'state', 'v', 'v', scale=1e6)    
-    ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='0.5')
-    ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='0.5')
+    _plot(ax, 'state', 'v', 'v', scale=1e6)
+    if hasattr(f, 'piston'):
+        ax.axhline(f.piston.vol_min * 1.e6, ls='--', color='0.5')
+        ax.axhline(f.piston.vol_max * 1.e6, ls='--', color='0.5')
     ax.legend()
     ax.set_ylabel('[cm^3]')
     ax.grid()
@@ -260,7 +261,7 @@ def plot_kalman(log, f, z_target=None, truth=None, figsize=(10,6)):
         ax.set_title(name)
         ax.grid()
         legend = ax.legend(loc='best', shadow=True, fontsize='medium')
-    fig.tight_layout()  
+    fig.tight_layout()
 
 def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
     alpha = 0.7
@@ -348,7 +349,7 @@ def plot_kalman_v0(log, f, V_e=None, gamma_e=None, z_target=None):
 
 def get_cmap_colors(Nc, cmap='plasma'):
     """ load colors from a colormap to plot lines
-    
+
     Parameters
     ----------
     Nc: int

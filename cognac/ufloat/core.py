@@ -20,7 +20,9 @@ watth = 1e-6/3.6
 
 class autonomous_float():
 
-    def __init__(self,**kwargs):
+    def __init__(self,
+                 model='ifremer',
+                 **kwargs):
         ''' Autonomous float object, the float is assumed to be cylinder-shaped
 
         Parameters
@@ -39,30 +41,34 @@ class autonomous_float():
 
         '''
         #
-        if 'model' not in kwargs:
-            self.model = 'ifremer'
-        else:
-            self.model = kwargs['model']
+        self.model = model
         #
-        if self.model.lower() == 'ifremer':
+        if model.lower() == 'ifremer':
             params = {'r': 0.07, 'L': 0.8278,
                       'gamma': 3.78039e-06, 'alpha': 6.98e-5,
                       'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
             params['m'] = 11.630
-        elif self.model.lower() == 'ensta':
+            # avec 16 piles : 11.630, avec 32 piles : 13.315
+            # compressibility from Paul Troadec's report (p39)
+        elif model.lower() == 'ensta':
             params = {'r': 0.06, 'L': 0.5,
                       'gamma': 9.30e-5, 'alpha': 0.,
                       'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
             params['m'] = 9.045
-        # avec 16 piles : 11.630, avec 32 piles : 13.315
-        # compressibility from Paul Troadec's report (p39)
+        elif model.lower() == 'minion':
+            params = {'r': 0.09/2., 'L': 0.4,
+                      'gamma': 1e-1*1e5/(2.85*1e9), 'alpha': 12e-6,
+                      'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
         #
         params.update(kwargs)
-        for key,val in params.items():
-            setattr(self,key,val)
+        for key, val in params.items():
+            setattr(self, key, val)
         # compute the volume of the float:
         if 'V' not in params:
             self.V = np.pi*self.r**2*self.L
+        if 'm' not in params:
+            self.m = self.V * 1030
+            print('infer mass from volume with rho=1030 kg/m3, m = {:.3f} kg'.format(self.m))
 
         #auxiliary parameters
         self.rho_cte= self.m / self.V #kg.m^-3
@@ -97,6 +103,7 @@ class autonomous_float():
                 v = 0.
         if p is not None and temp is not None:
             _V = self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0)) + v
+            self._volume = _V # for log purposes
             return self.m/_V
         elif z is not None and waterp is not None:
             # assumes thermal equilibrium
@@ -209,8 +216,8 @@ class autonomous_float():
         p, tempw = waterp.get_p(z), waterp.get_temp(z)
         rhow = waterp.get_rho(z)
         # for latter storage
-        self.w_tempw = tempw
-        self.w_rhow = rhow
+        self._water_temperature = tempw
+        self._water_rho = rhow
         #
         rhof = self.rho(p=p, temp=tempw, v=v)
         f_b += self.m*rhow/rhof*g
@@ -275,10 +282,10 @@ class autonomous_float():
         #    print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
         #          %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
         return fmax, fmin, afmax, wmax
-        
+
     def get_drag_velocity(self, dm, Lv=None):
         """ From a mass offset compute the drag velocity
-        
+
         Parameters:
         -----------
         dm: float
@@ -358,7 +365,10 @@ class autonomous_float():
         else:
             self.Lv = self.L
         # log init
-        _log = {'state':['z','w','v','dwdt','w_temp','w_rho']}
+        _log = {'state':['z','w','v','dwdt', 'volume',
+                         'water_temperature','water_rho'
+                         ]
+                }
         _log['dynamics'] = ['acceleration','buoyancy','drag']
         # kalman initialisation
         if kalman:
@@ -443,9 +453,10 @@ class autonomous_float():
             if _log_now:
                 _log = self.log
                 _log['state'].store(time=t, z=self.z, w=self.w, v=self.v,
+                                    volume=self._volume,
                                     dwdt=_force/(1+self.a)/self.m,
-                                    w_temp=self.w_tempw,
-                                    w_rho=self.w_rhow)
+                                    water_temperature=self._water_temperature,
+                                    water_rho=self._water_rho)
                 _log['dynamics'].store(time=t,
                                        acceleration=_force/(1+self.a)/self.m,
                                        buoyancy=_force_b/(1+self.a)/self.m,
@@ -541,7 +552,7 @@ class autonomous_float():
                 _gamma2 = _k.x_hat[4]
                 _c1 = _k.x_hat[5]
             u = _c.get_u_feedback2(z_target, t, -_k.x_hat[1], -_k.x_hat[0],
-                                  _dwdt, _gamma1, log, 
+                                  _dwdt, _gamma1, log,
                                   gamma2=_gamma2, c1=_c1)
         else:
             print('%s is not a valid control method'%_c.mode)
@@ -998,18 +1009,27 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
     lw = 4
     #
     #rho_f = f.rho(p=p, temp=temp, v=0.)
-    rho_f_vmax = f.rho(p=p, temp=temp, v=f.piston.vol_max)
-    rho_f_vmin = f.rho(p=p, temp=temp, v=f.piston.vol_min)
+    piston = hasattr(f, 'piston')
+    if piston:
+        rho_f_vmax = f.rho(p=p, temp=temp, v=f.piston.vol_max)
+        rho_f_vmin = f.rho(p=p, temp=temp, v=f.piston.vol_min)
+        ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w,
+                         facecolor='red', interpolate=True)
+    else:
+        rho_f = f.rho(p=p, temp=temp)
     #
-    ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w, 
-                     facecolor='red', interpolate=True)
     ax.plot(rho_w, z, 'b',  lw=lw,
             label='water')
-    ax.plot(rho_f_vmax, z, '-', color='orange', lw=lw,
-            label='float v_max', markevery=10)
-    ax.plot(rho_f_vmin, z, '--', color='orange',  lw=lw,
-            label='float v_min')
-    if mid:
+    if piston:
+        ax.plot(rho_f_vmax, z, '-', color='orange', lw=lw,
+                label='float v_max', markevery=10)
+        ax.plot(rho_f_vmin, z, '--', color='orange',  lw=lw,
+                label='float v_min')
+    else:
+        ax.plot(rho_f, z, '-', color='orange',  lw=lw,
+                label='float')
+
+    if piston and mid:
         #rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
         rho_f_vmid=f.rho(p=p, temp=temp, v=mid)
         ax.plot(rho_f_vmid, z, '--', color='grey',  lw=lw,
@@ -1020,8 +1040,9 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
     ax.set_ylabel('z [m]')
     ax.grid()
     iz = np.argmin(np.abs(z))
-    ax.set_title('extra mass @surface, piston out: %.1f g' \
-                    %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
+    if piston:
+        ax.set_title('extra mass @surface, piston out: %.1f g' \
+                        %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
     #
     y_annotation = ax.get_ylim()[1]-.1*(ax.get_ylim()[1]-ax.get_ylim()[0])
     ax.annotate('',
@@ -1070,18 +1091,18 @@ def plot_float_volume(z, f, waterp, ax=None):
     ax.set_ylabel('z [m]')
     ax.grid()
     return ax
-    
+
 def plot_equilibrium_volume(f, w, zlim=(-100,0)):
     """ Plot the piston volume required to be at equilibrium as a function
     of depth
     """
     z = np.arange(zlim[0],zlim[1], 5.)
     rho_w, p, temp = w.get_rho(z), w.get_p(z), w.get_temp(z)
-    v = np.array([f.volume4equilibrium(p, t, rho) 
+    v = np.array([f.volume4equilibrium(p, t, rho)
                    for p, t, rho in zip(p, temp, rho_w)])
 
     fig, ax = plt.subplots()
-    
+
     ax = plt.subplot(111)
     ax.plot(v*1e6,z, linewidth=4)
     ax.set_xlabel('equilibrium v [cm^3]')

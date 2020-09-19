@@ -33,8 +33,16 @@ class waterp():
 
     '''
 
-    def __init__(self, pressure=None, temperature=None, salinity=None,
-                       lon=None, lat=None, name=None, interp_method='quadratic'):
+    def __init__(self,
+                 pressure=None,
+                 temperature=None,
+                 salinity=None,
+                 lon=None,
+                 lat=None,
+                 name=None,
+                 interp_method='quadratic',
+                 **kwargs
+                 ):
 
         self._pts, self._woa = False, False
         self.interp_method = interp_method
@@ -47,6 +55,11 @@ class waterp():
             self._load_from_woa(lon,lat,name)
         else:
             print('Inputs missing')
+
+        # init isopycnal displacement and velocity
+        self.eta = 0.
+        self.detadt = 0.
+
 
     def _load_from_pts(self, pressure, temperature, salinity, lon, lat,
                        name):
@@ -71,12 +84,8 @@ class waterp():
         self.z = gsw.z_from_p(self.p, self.lat)
         #
         self.temp, self.s = temperature, salinity
-        # derive absolute salinity and conservative temperature
-        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
-        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
-        # isopycnal displacement and velocity
-        self.eta = 0.
-        self.detadt = 0.
+        #
+        self._update_eos()
         #
         if name is None:
             self.name = 'Provided water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
@@ -104,18 +113,19 @@ class waterp():
         nc = Dataset(self._sfile,'r')
         self.s = nc.variables['s_an'][0,:,ilat,ilon]
         nc.close()
-        # derive absolute salinity and conservative temperature
-        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
-        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
         #
-        self.N2, self.p_mid = gsw.Nsquared(self.SA, self.CT, self.p, lat=self.lat)
-        self.z_mid = gsw.z_from_p(self.p_mid, self.lat)
-        # isopycnal displacement and velocity
-        self.eta = 0.
-        self.detadt = 0.
+        self._update_eos()
         #
         if name is None:
             self.name = 'WOA water profile at lon=%.0f, lat=%.0f'%(self.lon,self.lat)
+
+    def _update_eos(self):
+        # derive absolute salinity and conservative temperature
+        self.SA = gsw.SA_from_SP(self.s, self.p, self.lon, self.lat)
+        self.CT = gsw.CT_from_t(self.SA, self.temp, self.p)
+        # derive N2
+        self.N2, self.p_mid = gsw.Nsquared(self.SA, self.CT, self.p, lat=self.lat)
+        self.z_mid = gsw.z_from_p(self.p_mid, self.lat)
 
     def show_on_map(self, zdiff=None):
         if self._woa:
