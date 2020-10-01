@@ -93,7 +93,14 @@ class autonomous_float():
             strout+=str(self.piston)
         return strout
 
-    def rho(self, p=None, temp=None, v=None, z=None, waterp=None):
+    def rho(self,
+            p=None,
+            temp=None,
+            v=None,
+            z=None,
+            waterp=None,
+            m=None,
+            ):
         ''' Returns float density i.e. mass over volume
         '''
         if v is None:
@@ -101,14 +108,16 @@ class autonomous_float():
                 v = self.v
             else:
                 v = 0.
+        if m is None:
+            m = self.m
         if p is not None and temp is not None:
             _V = self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0)) + v
             self._volume = _V # for log purposes
-            return self.m/_V
+            return m/_V
         elif z is not None and waterp is not None:
             # assumes thermal equilibrium
             p, tempw = waterp.get_p(z), waterp.get_temp(z)
-            return self.rho(p=p, temp=tempw, v=v)
+            return self.rho(p=p, temp=tempw, v=v, m=m)
         else:
             print('You need to provide p/temp or z/waterp')
 
@@ -149,13 +158,12 @@ class autonomous_float():
 
         '''
         def _f(m):
-            self.m = m
-            return rho_eq - self.rho(p=p_eq, temp=temp_eq)
+            return rho_eq - self.rho(p=p_eq, temp=temp_eq, m=m)
         m0 = self.m
         self.m = fsolve(_f, self.m)[0]
         self.m += offset*1e-3
-        self.rho_cte= self.m / self.V #kg.m^-3
-        print('%.1f g '%((self.m-m0)*1.e3+offset) + \
+        self.rho_cte = self.m / self.V #kg.m^-3
+        print('%.1f g '%((self.m-m0)*1.e3) + \
               ' were added to the float in order to be at equilibrium' + \
               ' at %.0f dbar \n'%(p_eq))
 
@@ -818,9 +826,11 @@ class piston():
 
 # ----------------------------- balast -----------------------------------------
 
-_bvariables = ['mass_in_water', 'mass_in_air',
+_bvariables = ['mass_in_water',
+               'mass_in_air',
                'water_temperature',
-               'piston_displacement']
+               'piston_displacement'
+               ]
 
 class balast(object):
 
@@ -839,7 +849,11 @@ class balast(object):
     def __repr__(self):
         return pformat(self._d, indent=2, width=1)
 
-    def add_balast(self, name, comments='None', **kwargs):
+    def add_balast(self,
+                   name,
+                   comments='None',
+                   **kwargs,
+                   ):
         ''' Add a mass measurement
 
         Parameters
@@ -852,21 +866,19 @@ class balast(object):
             in grammes
         water_temperature: float
             in degC
-        water_salinity: float
-            in psu
-        piston_displacement: float
-            in cm
+        water_salinity: float, optional
+            in psu, one of water salinity or conductivity must be passed
+        water_conductivity: float, optional
+            in S, one of water salinity or conductivity must be passed
+        piston_displacement: float, str
+            in cm or 'max' for all out
         comments: str
             additional comments
         '''
-        if not all(v in kwargs for v in _bvariables):
-            print('All following variables should be passed as kwargs:')
-            print(_bvariables)
-            print('Abort')
-            return
-        self._d[name] = {v: kwargs[v] for v in _bvariables}
-        _d = self._d[name]
-        # derive absolute salinity and conservative temperature
+        assert all(v in kwargs for v in _bvariables), \
+            print('All following variables should be passed as kwargs: '
+                  +', '.join(_bvariables)
+                  )
         if 'water_conductivity' in kwargs:
             _SP = gsw.SP_from_C(kwargs['water_conductivity'],
                                  kwargs['water_temperature'],
@@ -874,19 +886,30 @@ class balast(object):
                                  )
             _d['water_salinity'] = _SP
             print('Practical salinity derived from conductivity: SP=%.2f'%_SP)
-        else:
+        elif 'water_salinity' in kwargs:
             _SP = kwargs['water_salinity']
-        SA = gsw.SA_from_SP(_SP,self.pressure, self.lon, self.lat)
+        else:
+            print('salinity or conductivity must be provided')
+        self._d[name] = {v: kwargs[v] for v in _bvariables}
+        self._d[name]['water_salinity'] = _SP
+        # derive absolute salinity and conservative temperature
+        SA = gsw.SA_from_SP(_SP, self.pressure, self.lon, self.lat)
         CT = gsw.CT_from_t(SA, kwargs['water_temperature'], self.pressure)
         rho_water = gsw.density.rho(SA, CT, self.pressure) # in situ density
         # store derived variables
+        _d = self._d[name]
         _d['SA'] = SA
         _d['CT'] = CT
         _d['rho_water'] = rho_water
-        _d['V'] = _d['mass_in_air']/1e3/rho_water
+        _d['V'] = (_d['mass_in_air']-_d['mass_in_water'])/1e3/rho_water
         _d['comments'] = comments
 
-    def compute_mass_adjustment(self, f, w=None, verbose=False, **kwargs):
+    def compute_mass_adjustment(self,
+                                f,
+                                w=None,
+                                verbose=False,
+                                **kwargs
+                                ):
         """
         \delta_m = -V \delta \rho_w - \rho_w \delta V
         """
@@ -917,7 +940,11 @@ class balast(object):
             delta_rho_water = rho_water - b['rho_water']
             #
             f.m = b['mass_in_air']*1e-3  # need to convert to kg
-            f.piston.update_d(b['piston_displacement']*1e-2) # need to convert to m
+            if b['piston_displacement'] == 'max':
+                _piston_displacement = f.piston.d_max
+            else:
+                _piston_displacement = b['piston_displacement']*1e-2 # cm to m
+            f.piston.update_d(_piston_displacement)
             f.piston_update_vol()
             # reset volume and temperature reference
             f.V = b['V'] - f.v # reset volume to match volume infered from balasting
@@ -950,7 +977,7 @@ class balast(object):
 
     def store(self, file):
         _d = dict(self._d)
-        _v = ['SA','CT','rho_water', 'V', 'water_salinity']
+        _v = ['SA', 'CT', 'rho_water', 'V', 'water_salinity']
         for name, b in _d.items():
             for v in _v:
                 b[v]=float(b[v])

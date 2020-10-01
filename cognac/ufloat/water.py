@@ -220,7 +220,7 @@ class waterp():
         return self.interp(self.N2, z-self.eta, z_in=self.z_mid)
 
     def get_compressibility(self, z):
-        ' returns compressibility in 1/Pa'
+        ' returns compressibility in 1/dbar'
         p = self.get_p(z)
         SA = self.interp(self.SA, z-self.eta)
         CT = self.interp(self.CT, z-self.eta)
