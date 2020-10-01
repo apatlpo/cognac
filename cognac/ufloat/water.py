@@ -240,6 +240,13 @@ class waterp():
         CT = self.interp(self.CT, z-self.eta)
         return gsw.density.beta(SA, CT, p)
 
+    def get_adiabatic_lapse_rate(self, z):
+        ' returns adiabatic lapse rate in degC/dbar'
+        p = self.get_p(z)
+        SA = self.interp(self.SA, z-self.eta)
+        CT = self.interp(self.CT, z-self.eta)
+        return gsw.adiabatic_lapse_rate_from_CT(SA, CT, p)*1e4
+
     def update_eta(self, eta, t):
         ''' Update isopycnal diplacement and water velocity given a function
         for isopycnal displacement and time
