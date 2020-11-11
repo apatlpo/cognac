@@ -1,9 +1,15 @@
 import numpy as np
+import pandas as pd
 import xarray as xr
 from netCDF4 import Dataset
+
 from scipy.interpolate import interp1d
+
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import hvplot.pandas  # noqa
+import hvplot
+
 import gsw
 
 
@@ -40,12 +46,17 @@ class waterp():
                  lon=None,
                  lat=None,
                  name=None,
-                 interp_method='quadratic',
+                 interp_kwargs=None,
                  **kwargs
                  ):
 
         self._pts, self._woa = False, False
-        self.interp_method = interp_method
+        self._interp_kwargs = {'kind': 'quadratic',
+                               'fill_value': None,
+                               'bounds_error': False,
+                               }
+        if interp_kwargs:
+            self._interp_kwargs.update(**interp_kwargs)
 
         args = [pressure, temperature, salinity, lon, lat]
         if all([a is not None for a in args]):
@@ -127,6 +138,16 @@ class waterp():
         self.N2, self.p_mid = gsw.Nsquared(self.SA, self.CT, self.p, lat=self.lat)
         self.z_mid = gsw.z_from_p(self.p_mid, self.lat)
 
+    def _get_df(self, z=None):
+        if z is None:
+            z = self.z
+        return pd.DataFrame(data={'temperature': self.get_temp(z),
+                                  'salinity': self.get_s(z),
+                                  'rho': self.get_rho(z),
+                                  },
+                            index=z,
+                            )
+
     def show_on_map(self, zdiff=None):
         if self._woa:
             ds = xr.open_dataset(self._tfile, decode_times=False).squeeze()
@@ -156,7 +177,7 @@ class waterp():
         else:
             print('No map to show')
 
-    def __repr__(self):
+    def _plot_matplotlib(self):
         plt.figure(figsize=(9,5))
         ax = plt.subplot(131)
         ax.plot(self.get_temp(self.z),self.z,'k')
@@ -175,6 +196,21 @@ class waterp():
         ax.set_yticklabels([])
         ax.set_title('density [kg/m3]')
         plt.grid()
+
+    def _plot_hv(self):
+        df = self._get_df()
+        return df.hvplot(grid=True,
+                         subplots=True,
+                         shared_axes=False,
+                         width=200,
+                         invert=True,
+                         )
+
+    def plot(self):
+        print(self)
+        return self._plot_hv()
+
+    def __repr__(self):
         return self.name
 
     def get_temp(self,z):
@@ -267,6 +303,7 @@ class waterp():
             z_in = self.z
         _z = z_in[~(np.isnan(z_in)|np.isnan(v_in))]
         _v = v_in[~(np.isnan(z_in)|np.isnan(v_in))]
-        return interp1d(_z, _v,
-                        kind=self.interp_method,
-                        bounds_error=False)(z_out)
+        return interp1d(_z,
+                        _v,
+                        **self._interp_kwargs
+                        )(z_out)

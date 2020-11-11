@@ -230,7 +230,15 @@ class autonomous_float():
         rhof = self.rho(p=p, temp=tempw, v=v)
         f_b += self.m*rhow/rhof*g
         # drag
-        cd = self.c1/(2*Lv) * np.abs(w - waterp.detadt)
+        f_d = self.get_drag_force(w, waterp.detadt)
+        # we ignore DwDt terms for now
+        if sum:
+            return f_b+f_d
+        else:
+            return f_b+f_d, f_b, f_d
+
+    def get_drag_force(self, w, w_water):
+        cd = self.c1/(2*Lv) * np.abs(w - w_water)
         if self.c0 != 0:
             N2 = waterp.get_N2(z)
             if N2>0:
@@ -238,12 +246,8 @@ class autonomous_float():
             else:
                 N = 0.
             cd += N * self.c0
-        f_d = -self.m * cd * (w - waterp.detadt)
-        # we ignore DwDt terms for now
-        if sum:
-            return f_b+f_d
-        else:
-            return f_b+f_d, f_b, f_d
+        f_d = -self.m * cd * (w - w_water)
+        return f_d
 
     def compute_dforce(self, z, w, waterp, Lv):
         ''' Compute gradients of the vertical force exterted on the float
@@ -313,7 +317,9 @@ class autonomous_float():
                   eta=lambda t: 0.,
                   log=True,
                   dt_log=10.,
-                  log_nrg=True, p_float=1.e5,
+                  log_nrg=True,
+                  p_float=1.e5,
+                  restart=False,
                   verbose=0,
                   **kwargs):
         ''' Time step the float position given initial conditions
@@ -353,18 +359,28 @@ class autonomous_float():
         log_nrg: boolean, default is True
             Turns on/off nrg computation and storage
         p_float: float [Pa]
-            Internal float pressure in Pa
+            Internal float pressure in Pa (energy conssumption)
         '''
+        if restart:
+            t0 = self._t
         t=t0
         #
-        if z is not None:
+        if restart:
+            assert hasattr(self, 'z'), 'Restart but attribute z not existing !?'
+            pass
+        elif z is not None:
             self.z = z
-        elif not hasattr(self,'z'):
+        elif not hasattr(self, 'z'):
+            print('Default initial position used: z=0')
             self.z = 0.
         #
-        if w is not None:
+        if restart:
+            assert hasattr(self, 'w'), 'Restart but attribute w not existing !?'
+            pass
+        elif w is not None:
             self.w = w
         elif not hasattr(self,'w'):
+            print('Default initial vertical velocity used: w=0')
             self.w = 0.
         self.dwdt = 0.
         #
@@ -400,7 +416,8 @@ class autonomous_float():
         v0 = self.v
         #
         if log:
-            self.log = {logname:logger(vars) for logname, vars in _log.items()}
+            if not restart:
+                self.log = {logname:logger(vars) for logname, vars in _log.items()}
             _log_now = False
         else:
             self.log = None
@@ -485,6 +502,8 @@ class autonomous_float():
             self.w += dt_step*_force/(1+self.a)/self.m
             self.dwdt = _force/(1+self.a)/self.m
             t+=dt_step
+
+        self._t = t # for restarts
 
         print('... time stepping done')
 
@@ -935,6 +954,7 @@ class balast(object):
         SA = gsw.SA_from_SP(water_salinity, self.pressure, lon, lat)
         CT = gsw.CT_from_t(SA, water_temperature, self.pressure)
         rho_water = gsw.density.rho(SA, CT, self.pressure) # new in situ density
+        print('New in situ density: {:.2f} kg/m3'.format(rho_water))
         #
         for name, b in self._d.items():
             delta_rho_water = rho_water - b['rho_water']
