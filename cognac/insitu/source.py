@@ -24,7 +24,7 @@ def load_source_files(path,
                       verbose=-1):
     if path:
         files = sorted([os.path.join(w[0],f) for w in os.walk(path)
-                        for f in w[2] if '.txt' in f]
+                        for f in w[2] if ('.txt' in f) and ('mission_' in f)]
                        )
         files = [f for f in files if f not in ignore]
     sdata = source_rtsys(label=label)

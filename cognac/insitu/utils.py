@@ -8,7 +8,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from  matplotlib.dates import date2num, datetime, num2date
+import matplotlib.dates as mdates
 from matplotlib.colors import cnames
+
 #from mpl_toolkits.basemap import Basemap
 import cartopy.crs as ccrs
 from cartopy.io import shapereader
@@ -291,6 +293,62 @@ class campaign(object):
 
         return m
 
+    def timeline(self, height=.3, legend_loc=3):
+        """ Plot the campaign deployment timeline
+        """
+
+        fig = plt.figure(figsize=(15,5))
+        ax=fig.add_subplot(111)
+
+        y=0
+        yticks, yticks_labels = [], []
+        starts, ends = [], []
+            for d in u:
+                start = mdates.date2num(d.start.time)
+                end = mdates.date2num(d.end.time)
+                rect = Rectangle((start, y-height/2.), end-start, height, color=u['color'])
+                ax.add_patch(rect)
+                starts.append(start)
+                ends.append(end)
+            yticks.append(y)
+            yticks_labels.append(uname)
+            y+=-1
+
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(yticks_labels)
+        self.add_legend(ax, loc=legend_loc)
+
+        # assign date locator / formatter to the x-axis to get proper labels
+        locator = mdates.AutoDateLocator(minticks=3)
+        formatter = mdates.AutoDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+
+        # set the limits
+        delta_time = max(ends) - min(starts)
+        plt.xlim([min(starts)-delta_time*.05, max(ends)+delta_time*.05])
+        plt.ylim([y+1-2*height,2*height])
+
+    def timeline_old(self):
+        """ older version of timeline
+        """
+        fig = plt.figure(figsize=(15,5))
+        ax=fig.add_subplot(111)
+
+        y=0
+        yticks, yticks_labels = [], []
+        for uname, u in self.items():
+            for d in u:
+                ax.plot([d.start.time,d.end.time],[y,y], lw=4, color=u['color'])
+            yticks.append(y)
+            yticks_labels.append(uname)
+            y+=1
+
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(yticks_labels)
+        self.add_legend(ax, loc=2)
+
+
     def load_data(self):
         ''' load processed data
         '''
@@ -306,9 +364,29 @@ def dec2sec(dec):
     sec = np.abs(dec - idec) * 60.
     return [idec, sec]
 
+def ll_dec(deg, min):
+    """ converts lon or lat in deg, min to decimal
+    """
+    return deg + min/60.
+
 def ll_degmin(l):
+    """ converts lon or lat in decimal to deg, min
+
+    Parameters
+    ----------
+    l: float
+
+    Return
+    ------
+    deg, min
+
+    """
+    return int(l), (l-int(l))*60.
+
+def print_degmin(l):
     ''' Print lon/lat, deg + minutes decimales
     '''
+    dm = ll_degmin(l)
     return '%d deg %.5f' %(int(l), (l-int(l))*60.)
 
 def get_distance(lon1 , lat1 , lon2 , lat2):
@@ -381,11 +459,11 @@ _bathy_file = os.getenv('HOME') + '/data/bathy/' \
         'gebco1/gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
 _bathy_dir = '/'.join(_bathy_file.split('/')[:-1])
 
-def plot_bathy(fac):
+def plot_bathy(fac, levels=[-2000., -1000., -500., -200., -100.]):
     fig, ax, crs = fac
     #bfile = 'gebco0/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
     ds = xr.open_dataset(_bathy_file)
-    cs = ax.contour(ds.lon, ds.lat, ds.elevation, [-2000., -1000., -500., -200., -100.],
+    cs = ax.contour(ds.lon, ds.lat, ds.elevation, levels,
                     linestyles='-', colors='black', linewidths=0.5, )
     plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
 
