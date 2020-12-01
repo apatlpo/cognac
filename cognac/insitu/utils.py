@@ -303,6 +303,7 @@ class campaign(object):
         y=0
         yticks, yticks_labels = [], []
         starts, ends = [], []
+        for uname, u in self.items():
             for d in u:
                 start = mdates.date2num(d.start.time)
                 end = mdates.date2num(d.end.time)
