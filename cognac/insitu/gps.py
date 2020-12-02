@@ -3,6 +3,8 @@
 #
 
 import pandas as pd
+import xarray as xr
+
 import pynmea2
 import pickle
 import copy
@@ -33,8 +35,14 @@ class gps(object):
         self.label = label
         #
         if file is not None:
-            # assumes a pickle file
-            self._read_pickle(file)
+            if file.split('.')[-1]=='p':
+                # pickle file
+                self._read_pickle(file)
+            elif file.split('.')[-1]=='nc':
+                # netcdf file
+                self._read_nc(file)
+            else:
+                assert False, 'You need to pass either a pickle or netcdf file'
             return
         #
         self.d = pd.DataFrame()
@@ -184,6 +192,18 @@ class gps(object):
             setattr(self, key, p[key])
 
     #
+    def to_nc(self, file, **kwargs):
+        ds = self.d.to_xarray()
+        ds.attrs['label'] = self.label
+        ds.to_netcdf(file, **kwargs)
+        print('Data store to '+file)
+
+    def _read_nc(self, file):
+        ds = xr.open_dataset(file)
+        self.d = ds.to_dataframe()
+        self.label = ds.label
+
+    #
     def plot(self,
              fac=None,
              label='',
@@ -192,6 +212,7 @@ class gps(object):
              t0=None,
              t1=None,
              ll_lim=None,
+             offset=0.02,
              **kwargs):
         lon, lat = self.d['lon'], self.d['lat']
         if t0 is not None:
@@ -213,8 +234,8 @@ class gps(object):
             del kwargs['marker']
         ax.scatter(lon[0], lat[0], 20, marker='o', **kwargs)
         ax.scatter(lon[-1], lat[-1], 20, marker='*', **kwargs)
-        xoffset = 0.05 * (ll_lim[1] - ll_lim[0])
-        yoffset = 0.05 * (ll_lim[3] - ll_lim[2])
+        xoffset = offset * (ll_lim[1] - ll_lim[0])
+        yoffset = offset * (ll_lim[3] - ll_lim[2])
         ax.text(lon[-1]+xoffset, lat[-1]-yoffset, label,
                 fontsize=9, **kwargs)
 
@@ -222,7 +243,7 @@ class gps(object):
                     m,
                     label=None,
                     rule='10T',
-                    color='k',
+                    color='black',
                     ):
         """ add trajectory to folium map
         """
@@ -394,6 +415,32 @@ def read_gps_alees(file, label='gps', verbose=False):
             if verbose:
                 print(d)
             if all([d.datestamp, d.timestamp]):
+                time = datetime.datetime.combine(d.datestamp, d.timestamp)
+                data = data.append({'lon': d.longitude,
+                                    'lat': d.latitude,
+                                    'time': time
+                                    },
+                                    ignore_index=True)
+        #
+        gp.d = data.set_index('time')
+
+    return gp
+
+def read_gps_lops(file, label='gps', verbose=False):
+
+    # init gps container
+    gp = gps(label=label)
+    if isinstance(file, list):
+        for f in file:
+            gp = gp + read_gps_lops(f, verbose=verbose)
+    else:
+        print('Reads ' + file)
+        gpsfile = pynmea2.NMEAFile(file)
+        data = pd.DataFrame()
+        for d in gpsfile:
+            if verbose:
+                print(d)
+            if len(d.fields)>0 and all([d.datestamp, d.timestamp]):
                 time = datetime.datetime.combine(d.datestamp, d.timestamp)
                 data = data.append({'lon': d.longitude,
                                     'lat': d.latitude,

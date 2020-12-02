@@ -138,6 +138,7 @@ class objdict(object):
                 yield value
 
     def __str__(self):
+        #return {key: value for key, value in self._dict.items() if key not in self._skip}.__str__()
         return self._dict.__str__()
 
 class campaign(object):
@@ -151,7 +152,9 @@ class campaign(object):
 
         default_attr = {'name': 'unknown',
                         'lon_lim': None, 'lat_lim': None,
-                        'path': './'}
+                        'start': None, 'end': None,
+                        'path': './'
+                        }
         for key, value in default_attr.items():
             if key in cp:
                 setattr(self, key, cp[key])
@@ -162,22 +165,27 @@ class campaign(object):
             self.lon_mid = (self.lon_lim[0]+self.lon_lim[1])*.5
             self.lat_mid = (self.lat_lim[0]+self.lat_lim[1])*.5
 
+        if self.start:
+            self.start = pd.Timestamp(self.start)
+        if self.end:
+            self.end = pd.Timestamp(self.end)
+
         if 'pathp' in cp:
             self.pathp = cp['pathp']
         else:
             self.pathp = self.path+'datap/'
 
         self._units = {}
-        for i, idep in cp['units'].items():
+        for i, unit in cp['units'].items():
             self._units[i] = objdict(path=self.path)
-            for d, value in idep.items():
-                if d[0]!='_':
-                    self._units[i][d] = deployment(label=d,loglines=value)
-                elif d=='_path':
-                    self._units[i]['path'] = os.path.join(self.path,value)
-                else:
-                    self._units[i][d[1:]] = value
-                    self._units[i]._skip.append(d[1:])
+            for d, value in unit['deployments'].items():
+                self._units[i][d] = deployment(label=d,loglines=value)
+            for d, value in unit.items():
+                if d=='path':
+                    self._units[i]['path'] = os.path.join(self.path, value)
+                elif d!='deployments':
+                    self._units[i][d] = value
+                    self._units[i]._skip.append(d)
 
     def __repr__(self):
         return self.name
@@ -189,8 +197,10 @@ class campaign(object):
             return None
 
     def __iter__(self):
-        for key, value in self._units.items():
-            yield value
+        #for key, value in self._units.items():
+        #    yield value
+        for key in self._units:
+            yield key
 
     def items(self):
         for key, value in self._units.items():
@@ -211,7 +221,8 @@ class campaign(object):
             width='100%',
             height='100%',
             tiles='Cartodb Positron',
-            ignore_labels=[],
+            ignore=[],
+            **kwargs,
             ):
         ''' Plot overview map with folium
 
@@ -229,6 +240,9 @@ class campaign(object):
                 - "CartoDB" (positron and dark_matter)
 
         '''
+
+        if ignore=='all':
+            ignore=self._units
 
         m = folium.Map(location=[self.lat_mid, self.lon_mid],
                        width=width,
@@ -262,7 +276,7 @@ class campaign(object):
 
         # campaign details
         for uname, u in self.items():
-            if uname not in ignore_labels:
+            if uname not in ignore:
                 for d in u:
                     folium.Polygon([(d.start.lat, d.start.lon),
                                     (d.end.lat, d.end.lon)
@@ -288,8 +302,16 @@ class campaign(object):
                                  ).add_to(m)
 
         # useful plugins
+
         MeasureControl().add_to(m)
-        MousePosition().add_to(m)
+
+        fmtr_lon = "function(dec) {var min= (dec-Math.round(dec))*60; " \
+                    +"direction = (dec < 0) ? 'W' : 'E'; " \
+                    +"return L.Util.formatNum(dec, 0) + direction + L.Util.formatNum(min, 2);};"
+        fmtr_lat = "function(dec) {var min= (dec-Math.round(dec))*60; " \
+                    +"direction = (dec < 0) ? 'S' : 'N'; " \
+                    +"return L.Util.formatNum(dec, 0) + direction + L.Util.formatNum(min, 2);};"
+        MousePosition(lat_formatter=fmtr_lon, lng_formatter=fmtr_lat).add_to(m)
 
         return m
 
@@ -493,6 +515,41 @@ def load_bathy_contours(contour_file='contours.geojson'):
     with open(os.path.join(_bathy_dir,contour_file), 'r') as f:
         contours = geojson.load(f)
     return contours
+
+def plot_track_folium(df,
+                m,
+                label='gps',
+                rule=None,
+                color='black',
+                radius=1e2,
+                line=False,
+                ):
+    """ add trajectory to folium map
+    """
+    # resample data
+    if rule:
+        df = df.resample(rule).mean()
+    # drop NaNs
+    df = df.dropna()
+    #
+    for t, row in df.iterrows():
+        folium.Circle((row['lat'], row['lon']),
+                      tooltip=str(t),
+                      popup=folium.Popup(label+'<br>'+str(t),
+                                         max_width=150,
+                                         sticky=True),
+                      radius=radius,
+                      color=cnames[color],
+                      fill=True,
+                     ).add_to(m)
+    if line:
+        folium.Polygon([(row['lat'], row['lon'])
+                        for t, row in df.iterrows()
+                        ],
+                       color=cnames[color],
+                       opacity=.5
+                      ).add_to(m)
+    return m
 
 #
 # ------------------------- EOS wrappers -----------------------------------

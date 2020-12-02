@@ -42,10 +42,14 @@ class source_rtsys(object):
                  verbose=-1):
         self.label = label
         #
-        if file:
-            if file.split('.')[-1] is 'p':
+        if file is not None:
+            if file.split('.')[-1]=='p':
                 # pickle file
                 self._read_pickle(file)
+                return
+            elif file.split('.')[-1]=='nc':
+                # netcdf file
+                self._read_nc(file)
                 return
             else:
                 self.gps, self.emission = read_log_file(file, label, verbose)
@@ -118,6 +122,15 @@ class source_rtsys(object):
         for key in source_attrs:
             setattr(self, key, p[key])
 
+    #
+    def to_nc(self, file):
+        self.gps.to_nc(file.rstrip('.nc')+'_gps.nc')
+        self.emission.to_nc(file.rstrip('.nc')+'_emission.nc')
+
+    def _read_nc(self, file):
+        self.gps = gps(file=file.rstrip('.nc')+'_gps.nc')
+        self.emission = gps(file=file.rstrip('.nc')+'_emission.nc')
+        self.label = self.gps.label
 
 class emissions(gps):
     ''' Data container for emission data
