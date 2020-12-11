@@ -124,12 +124,26 @@ class source_rtsys(object):
 
     #
     def to_nc(self, file):
-        self.gps.to_nc(file.rstrip('.nc')+'_gps.nc')
-        self.emission.to_nc(file.rstrip('.nc')+'_emission.nc')
+        """ Store source data
+        Parameters
+        ----------
+        file: str
+            File path, must contain '*' character
+        """
+        _file = file.rstrip('.nc')+'.nc'
+        self.gps.to_nc(_file.replace('*', 'gps'))
+        self.emission.to_nc(_file.replace('*', 'emission'))
 
     def _read_nc(self, file):
-        self.gps = gps(file=file.rstrip('.nc')+'_gps.nc')
-        self.emission = gps(file=file.rstrip('.nc')+'_emission.nc')
+        """ Store source data
+        Parameters
+        ----------
+        file: str
+            File path, must contain '*' character
+        """
+        _file = file.rstrip('.nc')+'.nc'
+        self.gps = gps(file=_file.replace('*', 'gps'))
+        self.emission = gps(file=_file.replace('*', 'emission'))
         self.label = self.gps.label
 
 class emissions(gps):

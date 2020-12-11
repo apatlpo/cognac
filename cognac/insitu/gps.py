@@ -20,7 +20,7 @@ from bokeh.layouts import gridplot
 from bokeh.models import ColumnDataSource, HoverTool
 from bokeh.plotting import figure
 
-from .utils import get_distance
+from .utils import get_distance, print_degmin
 
 gps_attrs = ['label', 'd']
 
@@ -54,8 +54,15 @@ class gps(object):
         if item=='time':
             # time or depth?
             return self.d.index
-        else:
+        elif isinstance(item, str) and item in self.d.columns:
             return self.d[item]
+        else:
+            # date
+            return self.d.loc[item]
+
+    def print_position(self, time):
+        lon, lat = self[time][['lon', 'lat']]
+        print(print_degmin(lat)+' / '+print_degmin(lon))
 
     def __add__(self, other):
         self.d = self.d.append(other.d)
@@ -102,7 +109,11 @@ class gps(object):
     def sort(self):
         self.d.sort_index(inplace=True)
 
-    def resample(self, rule, inplace=False, **kwargs):
+    def resample(self,
+                 rule,
+                 inplace=False,
+                 interpolate=False,
+                 **kwargs):
         ''' temporal resampling
         https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.resample.html
 
@@ -114,14 +125,28 @@ class gps(object):
                 - '10S': 10 seconds
         inplace: boolean, optional
             turn inplace resampling on, default is False
+        interpolate: boolean, optional
+            turn on interpolation for upsampling
         kwargs:
             passed to resample
         '''
         if inplace:
-            self.d = self.d.resample(rule, **kwargs).mean()
+            _d = (self
+                  .d
+                  .resample(rule,
+                            **kwargs,
+                            )
+                  ).mean()
+            if interpolate:
+                _d = _d.interpolate(method='linear')
+            self.d = _d
         else:
             gp = copy.deepcopy(self)
-            gp.resample(rule, inplace=True, **kwargs)
+            gp.resample(rule,
+                        inplace=True,
+                        interpolate=interpolate,
+                        **kwargs
+                        )
             return gp
 
     def join(self, other, rule):
@@ -213,6 +238,8 @@ class gps(object):
              t1=None,
              ll_lim=None,
              offset=0.02,
+             start_marker='o',
+             end_marker='*',
              **kwargs):
         lon, lat = self.d['lon'], self.d['lat']
         if t0 is not None:
@@ -232,8 +259,10 @@ class gps(object):
         ax.plot(lon, lat, lw=lw, linestyle=linestyle, **kwargs)
         if 'marker' in kwargs:
             del kwargs['marker']
-        ax.scatter(lon[0], lat[0], 20, marker='o', **kwargs)
-        ax.scatter(lon[-1], lat[-1], 20, marker='*', **kwargs)
+        if start_marker:
+            ax.scatter(lon[0], lat[0], 20, marker=start_marker, **kwargs)
+        if end_marker:
+            ax.scatter(lon[-1], lat[-1], 20, marker=end_marker, **kwargs)
         xoffset = offset * (ll_lim[1] - ll_lim[0])
         yoffset = offset * (ll_lim[3] - ll_lim[2])
         ax.text(lon[-1]+xoffset, lat[-1]-yoffset, label,
@@ -437,20 +466,40 @@ def read_gps_lops(file, label='gps', verbose=False):
         print('Reads ' + file)
         gpsfile = pynmea2.NMEAFile(file)
         data = pd.DataFrame()
-        for d in gpsfile:
+        t = None
+        for s in gpsfile:
             if verbose:
-                print(d)
-            if len(d.fields)>0 and all([d.datestamp, d.timestamp]):
-                time = datetime.datetime.combine(d.datestamp, d.timestamp)
-                data = data.append({'lon': d.longitude,
-                                    'lat': d.latitude,
-                                    'time': time
-                                    },
-                                    ignore_index=True)
+                print(s)
+            if len(s.fields)>0 and hasattr(s, 'is_valid') and s.is_valid:
+                d = parse_nmea_sentence(s, t=t)
+                data = data.append(d, ignore_index=True)
+                t = d['time']
         #
         gp.d = data.set_index('time')
 
     return gp
+
+def parse_nmea_sentence(s, t=None):
+    if 'GPRMC' in s.identifier():
+        if len(s.fields)>0 and all([s.datestamp, s.timestamp]):
+            time = datetime.datetime.combine(s.datestamp, s.timestamp)
+    elif 'GPGGA' in s.identifier():
+        if t:
+            time = datetime.datetime(t.year,
+                                     t.month,
+                                     t.day,
+                                     int(s.data[0][:2]),
+                                     int(s.data[0][2:4]),
+                                     int(s.data[0][4:6]),
+                                     )
+            if time<t:
+                time+=datetime.timedelta(days=1)
+        else:
+            time = t
+    return dict(lon=s.longitude,
+                lat=s.latitude,
+                time=time
+                )
 
 def interp_gps(time, gp):
     '''Interpolate lists of gps onto a given timeline
