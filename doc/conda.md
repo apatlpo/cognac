@@ -15,6 +15,9 @@ pip install geojsoncontour
 conda install ffmpeg
 pip install graphviz
 pip install git+https://github.com/python-acoustics/python-acoustics.git
+git clone https://github.com/apatlpo/cognac.git
+cd cognac
+pip install -e .
 jupyter labextension install @jupyter-widgets/jupyterlab-manager \
                              jupyter-leaflet
 ```
