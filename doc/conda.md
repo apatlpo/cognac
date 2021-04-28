@@ -16,7 +16,6 @@ conda install ffmpeg
 pip install graphviz
 pip install git+https://github.com/python-acoustics/python-acoustics.git
 jupyter labextension install @jupyter-widgets/jupyterlab-manager \
-                             @pyviz/jupyterlab_pyviz \
                              jupyter-leaflet
 ```
 

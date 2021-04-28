@@ -242,44 +242,49 @@ def read_log_file(file, label, verbose):
             # GPS data
             if verbose>0:
                 print(line)
-            if line.split(',')[2] == 'V' and gps_sync_start == -1:
+            items = line.split(',')
+            if items[2] == 'V' and gps_sync_start == -1:
                 # no coordinates available
                 if gps_sync_stop == -1 and gps_sync_start == -1:
                     #
-                    time = float(line.split(',')[1])
+                    time = float(items[1])
                     h = int( time / 10000 )
                     m = int( (time - h * 10000) / 100 )
                     s = int( time - h * 10000 - m * 100 )
                     gps_sync_start = h * 3600 + m * 60 + s
                     if verbose>1: print(i, "(GPS sync start)", line)
                     #
-                    if line.split(',')[9] is not '':
-                        date = float(line.split(',')[9])
+                    if items[9] is not '':
+                        date = float(items[9])
                         day = int( date/1e4 )
                         month = int( (date-day*1e4)/1e2 )
                         year = 2000+int( date-day*1e4-month*1e2 )
                     #
                 if gps_sync_stop != -1:
                     if verbose>1: print(i, "(GPS sync lost!)", line)
-            if line.split(',')[2] == 'A':
+            if items[2] == 'A':
                 # coordinates available
-                time = float(line.split(',')[1])
+                time = float(items[1])
                 h = int(time / 10000)
                 m = int( (time - h * 10000) / 100 )
                 s = int( time - h * 10000 - m * 100 )
                 #
-                date = float(line.split(',')[9])
+                date = float(items[9])
                 day = int(date / 1e4)
                 month = int((date - day * 1e4) / 1e2)
                 year = 2000+int(date - day * 1e4 - month * 1e2)
                 #
-                lon = float(line.split(',')[5])
+                lon = float(items[5])
                 lond = np.floor(lon / 100)
                 lon = lond + (lon - lond * 100) / 60.
+                if items[6]=='W':
+                    lon = -lon
                 #
-                lat = float(line.split(',')[3])
+                lat = float(items[3])
                 latd = np.floor(lat / 100)
                 lat = latd + (lat - latd * 100) / 60.
+                if items[4]=='S':
+                    lat = -lat
                 # store data
                 #time = date2num(datetime.datetime(year, month, day, h, m, s))
                 time = datetime.datetime(year, month, day, h, m, s)

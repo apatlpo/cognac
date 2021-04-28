@@ -22,36 +22,39 @@ from netCDF4 import Dataset
 # ------------------------- Maps and Metrics -----------------------------------
 #
 
-def dec2sec(dec):
+def dec2degmin(dec):
     # return coordinates with seconds
-    idec = np.trunc(dec)
-    sec = np.abs(dec - idec) * 60.
-    return [idec, sec]
+    sign = np.sign(dec)
+    deg = np.trunc(abs(dec))
+    sec = (abs(dec) - deg) * 60.
+    return [int(sign*deg), sec]
 
-def ll_dec(deg, min):
+def degmin2dec(deg, min):
     """ converts lon or lat in deg, min to decimal
     """
-    return deg + min/60.
+    return deg + np.sign(deg) * min/60.
 
-def ll_degmin(l):
-    """ converts lon or lat in decimal to deg, min
-
-    Parameters
-    ----------
-    l: float
-
-    Return
-    ------
-    deg, min
-
-    """
-    return int(l), (l-int(l))*60.
+# def ll_degmin(l):
+#     """ converts lon or lat in decimal to deg, min
+#
+#     Parameters
+#     ----------
+#     l: float
+#
+#     Return
+#     ------
+#     deg, min
+#
+#     """
+#     #return int(l), (l-int(l))*60.
+#     return dec2sec(l)
 
 def print_degmin(l):
     ''' Print lon/lat, deg + minutes decimales
     '''
-    dm = ll_degmin(l)
-    return '%d deg %.5f' %(int(l), (l-int(l))*60.)
+    dm = dec2degmin(l)
+    #return '%d deg %.5f' %(int(l), (l-int(l))*60.)
+    return '{} {:.5f}'.format(*dm)
 
 def get_distance(lon1 , lat1 , lon2 , lat2):
     ''' wrapper around distance calculator in meters
@@ -75,7 +78,14 @@ def get_distance(lon1 , lat1 , lon2 , lat2):
 #    return earth_radius * np.arccos(np.sin(d2r*lat1)*np.sin(d2r*lat2) \
 #                                  +np.cos(d2r*lat1)*np.cos(d2r*lat2)*np.cos(d2r*(lon2-lon1)))
 
-def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
+def plot_map(fig=None,
+             coast='110m',
+             figsize=(10, 10),
+             bounds=None,
+             cp=None,
+             grid_linewidth=1,
+             **kwargs,
+             ):
     crs = ccrs.PlateCarree()
     #
     if fig is None:
@@ -83,16 +93,20 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
     else:
         fig.clf()
 
-    if ll_lim is None:
+    if bounds is None:
         if cp is not None:
-            ll_lim = cp.lon_lim+cp.lat_lim
+            bounds = cp.bounds
         else:
-            ll_lim = _ll_lim_default
+            bounds = _bounds_default
 
     ax = fig.add_subplot(111, projection=crs)
-    ax.set_extent(ll_lim, crs=crs)
-    gl = ax.gridlines(crs=crs, draw_labels=True, linewidth=2, color='k',
-                      alpha=0.5, linestyle='--')
+    ax.set_extent(bounds, crs=crs)
+    gl = ax.gridlines(crs=crs,
+                      draw_labels=True,
+                      linewidth=grid_linewidth,
+                      color='k',
+                      alpha=0.5, linestyle='--',
+                      )
     gl.xlabels_top = False
     #
     if coast in ['10m', '50m', '110m']:
@@ -118,42 +132,83 @@ def plot_map(fig=None, coast='med', figsize=(10, 10), ll_lim=None, cp=None):
     return [fig, ax, crs]
 
 
-# GEBCO bathymetry
-_bathy_file = os.getenv('HOME') + '/data/bathy/' \
-        'gebco1/gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
-_bathy_dir = '/'.join(_bathy_file.split('/')[:-1])
+# etopo1
+_bathy_etopo1 = os.path.join(os.getenv('HOME'),
+                        'Data/bathy/etopo1/ETOPO1_Ice_g_gmt4.grd',
+                        )
 
-def plot_bathy(fac, levels=[-2000., -1000., -500., -200., -100.]):
+# med: GEBCO bathymetry
+_med_file = 'gebco_2020_n44.001617431640625_s41.867523193359375_w4.61151123046875_e8.206787109375.nc'
+_bathy_med = os.path.join(os.getenv('HOME'), 'Data/bathy/gebco1', _med_file)
+
+def load_bathy(bathy, bounds=None, steps=None, **kwargs):
+    """ Load bathymetry
+    """
+    if bathy=='etopo1':
+        ds = xr.open_dataset(_bathy_etopo1)
+        ds = ds.rename({'x': 'lon', 'y': 'lat', 'z': 'elevation'})
+        if bounds is None and steps is None:
+            steps = (4, 4)
+    elif bathy=='med':
+        ds = xr.open_dataset(_bathy_med)
+    if steps is not None:
+        ds = ds.isel(lon=slice(0, None, steps[0]),
+                     lat=slice(0, None, steps[1]),
+                     )
+    if bounds is not None:
+        ds = ds.sel(lon=slice(bounds[0], bounds[1]),
+                    lat=slice(bounds[2], bounds[3]),
+                    )
+    return ds
+
+def plot_bathy(fac,
+               levels=[-6000., -4000., -2000., -1000., -500., -200., -100.],
+               clabel=True,
+               bathy='etopo1',
+               steps=None,
+               bounds=None,
+               **kwargs,
+               ):
     fig, ax, crs = fac
-    #bfile = 'gebco0/GEBCO_2014_2D_5.625_42.0419_8.8046_44.2142.nc'
-    ds = xr.open_dataset(_bathy_file)
+    if isinstance(levels, tuple):
+        levels = np.arange(*levels)
+    #print(levels)
+    ds = load_bathy(bathy, bounds=bounds, steps=steps)
     cs = ax.contour(ds.lon, ds.lat, ds.elevation, levels,
-                    linestyles='-', colors='black', linewidths=0.5, )
-    plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
+                    linestyles='-', colors='black',
+                    linewidths=0.5,
+                    )
+    if clabel:
+        plt.clabel(cs, cs.levels, inline=True, fmt='%.0f', fontsize=9)
 
-def store_bathy_contours(contour_file='contours.geojson',
+def store_bathy_contours(bathy,
+                         contour_file='contours.geojson',
                          levels=[0, 100, 500, 1000, 2000, 3000],
+                         **kwargs,
                          ):
     """ Store bathymetric contours as a geojson
     The geojson may be used for folium plots
     """
+
     # Create contour data lon_range, lat_range, Z
-    depth = -xr.open_dataset(_bathy_file)['elevation']
+    depth = load_bathy(bathy, **kwargs)['elevation']
+    if isinstance(levels, tuple):
+        levels = np.arange(*levels)
     contours = depth.plot.contour(levels=levels, cmap='gray_r')
 
     # Convert matplotlib contour to geojson
     from geojsoncontour import contour_to_geojson
     contours_geojson = contour_to_geojson(
                             contour=contours,
-                            geojson_filepath=os.path.join(bathy_dir,
-                                                          contour_file),
+                            geojson_filepath=contour_file,
                             ndigits=3,
                             unit='m',
                         )
-def load_bathy_contours(contour_file='contours.geojson'):
+
+def load_bathy_contours(contour_file):
     ''' load bathymetric contours as geojson
     '''
-    with open(os.path.join(_bathy_dir,contour_file), 'r') as f:
+    with open(contour_file, 'r') as f:
         contours = geojson.load(f)
     return contours
 

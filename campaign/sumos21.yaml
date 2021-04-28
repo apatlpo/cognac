@@ -1,0 +1,94 @@
+name: sumos21
+path: /Users/aponte/Current_projects/cognac/campagnes/2021_sumos/data/
+# general information
+lon:
+  - -7.5
+  - -5.9
+lat:
+  - 45.9
+  - 46.5
+start: 2021-02-22 09:30:00
+end: 2021-03-03 15:30:00
+bathy:
+  label: 'etopo1'
+  levels: !!python/tuple [-6000,0,100]
+#
+units:
+  emetteur:
+    deployments:
+      d1:
+      - 2021-03-03 14:45:00  -6 52.65 46.0 16.00
+      - 2021-03-05 10:43:52  -6 56.83 46.0 7.00
+    instruments:
+      iridium: 300434063262410
+      rbr: 82905
+    path: deploiement1/emetteur/
+    color: orange
+  recepteur0:
+    deployments:
+      d1_synchro_start:
+      - 2021-03-03 15:04:00  -7 0. 46 0.
+      - 2021-03-03 15:22:00  -7 0. 46 0.
+      d1:
+      - 2021-03-03 17:17:01 -6 56.38 46.0 20.00
+      - 2021-03-05 09:09:00  -6 56.23 46.0 13.00
+      d1_synchro_end:
+      - 2021-03-05 10:10:00  -7 0. 46 0.
+      - 2021-03-05 10:25:00  -7 0. 46 0.
+    instruments:
+      iridium: 300434064252900
+      rbr: 202218
+    path: deploiement1/recepteur0/
+    color: cadetblue
+  recepteur1:
+    deployments:
+      d1:
+      - 2021-03-03 16:16:00  -6 56.41 46.0 11.00
+      - 2021-03-05 14:14:00  -7 3.52 46.0 0.00
+    instruments:
+      iridium: 300434062298540
+      rbr: 82909
+    path: deploiement1/recepteur1/
+    color: cadetblue
+  recepteur2:
+    deployments:
+      d0:
+      - 2021-02-22 09:09:00  -5 59.10 46.0 16.00
+      - 2021-02-22 13:13:00  -5 58.20 46.0 16.00
+      d1:
+      - 2021-03-03 13:13:00  -6 45.51 46.0 16.00
+      - 2021-03-05 13:13:00  -6 55.69 46.0 4.00
+    instruments:
+      iridium: 300434064301970
+      rbr: 82218
+    path:
+    - deploiement0/recepteur2/
+    - deploiement1/recepteur2/
+    color: cadetblue
+  ctd:
+    deployments:
+      d1:
+      - 2021-03-03 19:05:00 -7 10.83 46 20.42
+      - 2021-03-03 19:35:00 -7 10.83 46 20.42
+    path: ctd/
+    color: chocolate
+  spots:
+    deployments:
+      all:
+      - "2021-02-22 09:00:00"
+      - "2021-03-05 15:00:00"
+    path: spots/
+    color: darkkhahi
+  ship:
+    deployments:
+      all:
+      - "2021-02-22 09:00:00"
+      - "2021-03-05 15:00:00"
+      d0:
+      - "2021-02-22 09:00:00"
+      - "2021-02-22 13:30:00"
+      d1:
+      - "2021-03-03 13:00:00"
+      - "2021-03-05 15:00:00"
+    path: ship/
+    color: "0.5"

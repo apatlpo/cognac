@@ -5,6 +5,7 @@ import os
 from glob import glob
 import yaml
 
+import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -17,11 +18,12 @@ from matplotlib.colors import cnames
 import folium
 from folium.plugins import MeasureControl, MousePosition
 
-from .utils import load_bathy_contours, dec2sec
-from .gps import gps as gps_obj
+from .utils import dec2degmin, \
+                plot_map, plot_bathy, \
+                load_bathy_contours, store_bathy_contours
 
-#_ll_lim_default = [6.4, 6.6, 42.92, 43.2]
-_ll_lim_default = [6., 6.6, 42.7, 43.2]
+#_bounds_default = [6.4, 6.6, 42.92, 43.2]
+_bounds_default = [6., 6.6, 42.7, 43.2]
 
 class event(object):
 
@@ -35,32 +37,39 @@ class event(object):
 
         # time information
         # assumes: 02/09/2016 05:35:00 7 17.124 43 19.866
-        self.time = datetime.datetime(int(l[0].split('/')[2]),
-                                      int(l[0].split('/')[1]),
-                                      int(l[0].split('/')[0]),
-                                      int(l[1].split(':')[0]),
-                                      int(l[1].split(':')[1]),
-                                      int(l[1].split(':')[2]))
+        self.time = pd.to_datetime(l[0]+' '+l[1],
+                                   #dayfirst=False,
+                                   infer_datetime_format=True,
+                                   )
 
         if len(l)>2:
             # lon, lat data
             if coord_min:
-                self.lon = float(l[2]) + float(l[3])/60.
-                self.lat = float(l[4]) + float(l[5])/60.
+                lon_deg = float(l[2])
+                self.lon = lon_deg + np.sign(lon_deg) * float(l[3])/60.
+                lat_deg = float(l[4])
+                self.lat = lat_deg + np.sign(lat_deg) * float(l[5])/60.
             else:
                 self.lon = float(l[2])
                 self.lat = float(l[3])
+        else:
+            self.lon = None
+            self.lat = None
+
+    def degmin(self):
+        """ Returns dict containing longitude and latitude in degrees/minutes
+        """
+        return dict(lon=dec2degmin(lon), lat=dec2degmin(lat))
 
     def __str__(self):
-        print('-')
-        print('Event label: '+str(self.label)) #+'\n')
-        print('Time: ')
-        print(self.time)
-        lon=self.lon
-        lat=self.lat
-        print('Lon:'+str(lon)+' = '+str(dec2sec(lon)[0])+'deg '+str(dec2sec(lon)[1]))
-        print('Lat:' + str(lat) + ' = ' + str(dec2sec(lat)[0]) + 'deg ' + str(dec2sec(lat)[1]))
-        return ''
+        if self.lon and self.lat:
+            return '{} {} {:.2f} {:.2f}'.format(self.label,
+                                                self.time,
+                                                self.lon,
+                                                self.lat,
+                                                )
+        else:
+            return '{} {}'.format(self.label, self.time)
 
 
 class deployment(object):
@@ -74,14 +83,11 @@ class deployment(object):
             self.start=event(label='start', logline=loglines[0])
             self.end = event(label='end', logline=loglines[1])
 
+    def __repr__(self):
+        return 'cognac.insitu.events.deployment({})'.format(str(self))
+
     def __str__(self):
-        print('--')
-        print('Deployment label: '+self.label)
-        print('Start:')
-        print(self.start)
-        print('End:')
-        print(self.end)
-        return ''
+        return self.label+' / '+str(self.start)+' / '+str(self.end)
 
     def plot_time(self, ax, y0=0., dy=0.5, **kwargs):
         #t0 = self.start.time
@@ -92,8 +98,17 @@ class deployment(object):
         #ax.plot([self.start.time,self.end.time],[y0,y0],lw=20)
         pass
 
-    def plot_on_map(self, ax, line=True, label=False, yshift=1, s=30,
-                    **kwargs):
+    def plot_on_map(self,
+                    ax,
+                    line=True,
+                    label=False,
+                    yshift=1,
+                    s=30,
+                    **kwargs,
+                    ):
+        if self.start.lon is None:
+            # exits right for deployments that do not have lon/lat info
+            return
         #
         x0, y0 = self.start.lon, self.start.lat
         x1, y1 = self.end.lon, self.end.lat
@@ -118,7 +133,7 @@ class objdict(object):
     '''
     def __init__(self, *args,**kwargs):
         self._dict = dict(*args,**kwargs)
-        self._skip = ['path']
+        self._skip = ['path', 'label']
 
     def __contains__(self, item):
         return item in self._dict
@@ -134,9 +149,12 @@ class objdict(object):
             if key not in self._skip:
                 yield value
 
+    def __repr__(self):
+        return 'cognac.insitu.events.unit({})'.format(str(self))
+
     def __str__(self):
-        #return {key: value for key, value in self._dict.items() if key not in self._skip}.__str__()
-        return self._dict.__str__()
+        return self['label']+'\n'+'\n'.join(str(d) for d in self)
+
 
 class campaign(object):
     ''' Campaign object, gathers deployments information
@@ -144,13 +162,17 @@ class campaign(object):
 
     def __init__(self, file):
 
+        # open yaml information file
+        if ".yaml" not in file:
+            file = file+".yaml"
         with open(file, 'r') as stream:
             cp = yaml.load(stream)
 
         default_attr = {'name': 'unknown',
-                        'lon_lim': None, 'lat_lim': None,
+                        'lon': None, 'lat': None,
                         'start': None, 'end': None,
-                        'path': './'
+                        'path': './',
+                        'bathy': None,
                         }
         for key, value in default_attr.items():
             if key in cp:
@@ -158,9 +180,10 @@ class campaign(object):
             else:
                 setattr(self, key, value)
 
-        if self.lon_lim and self.lat_lim:
-            self.lon_mid = (self.lon_lim[0]+self.lon_lim[1])*.5
-            self.lat_mid = (self.lat_lim[0]+self.lat_lim[1])*.5
+        if self.lon and self.lat:
+            self.bounds = self.lon + self.lat
+            self.lon_mid = (self.lon[0]+self.lon[1])*.5
+            self.lat_mid = (self.lat[0]+self.lat[1])*.5
 
         if self.start:
             self.start = pd.Timestamp(self.start)
@@ -173,19 +196,30 @@ class campaign(object):
             self.pathp = self.path+'datap/'
 
         self._units = {}
-        for i, unit in cp['units'].items():
-            self._units[i] = objdict(path=self.path)
-            for d, value in unit['deployments'].items():
-                self._units[i][d] = deployment(label=d,loglines=value)
-            for d, value in unit.items():
+        for u, info in cp['units'].items():
+            self._units[u] = objdict(path=self.path, label=u)
+            for d, value in info['deployments'].items():
+                self._units[u][d] = deployment(label=d, loglines=value)
+            for d, value in info.items():
                 if d=='path':
-                    self._units[i]['path'] = os.path.join(self.path, value)
+                    if isinstance(value, str):
+                        _p = os.path.join(self.path, value)
+                    else:
+                        _p = [os.path.join(self.path, v) for v in value]
+                    self._units[u]['path'] = _p
                 elif d!='deployments':
-                    self._units[i][d] = value
-                    self._units[i]._skip.append(d)
+                    self._units[u][d] = value
+                    self._units[u]._skip.append(d)
 
     def __repr__(self):
-        return self.name
+        return 'cognac.insitu.events.campaign({})'.format(str(self))
+
+    def __str__(self):
+        #fmt = "%Y-%m-%d %H:%M:%S"
+        fmt = "%Y/%m/%d"
+        start = self.start.strftime(fmt)
+        end = self.end.strftime(fmt)
+        return self.name+' {} to {}'.format(start, end)
 
     def __getitem__(self, item):
         if item in self._units:
@@ -199,26 +233,34 @@ class campaign(object):
         for key in self._units:
             yield key
 
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.name==other
+        else:
+            return False
+
     def items(self):
         for key, value in self._units.items():
             yield key, value
 
-    def add_legend(self, ax, labels=None, **kwargs):
-        """ Add legend for units on an axis
-        """
-        from matplotlib.lines import Line2D
-        if labels is None:
-            labels = list(self._units)
-        custom_lines = [Line2D([0], [0], color=self[label]['color'], lw=4)
-                        for label in labels
-                        ]
-        ax.legend(custom_lines, labels, **kwargs)
+    def plot_map(self, **kwargs):
+        dkwargs = dict(bounds=self.bounds,
+                       bathy=self.bathy['label'],
+                       levels=self.bathy['levels'],
+                       )
+        dkwargs.update((k,v) for k,v in kwargs.items() if v is not None)
+        #dkwargs.update(kwargs)
+        fac = plot_map(cp=self, **dkwargs)
+        plot_bathy(fac, **dkwargs)
+        return fac
 
     def map(self,
             width='100%',
             height='100%',
             tiles='Cartodb Positron',
             ignore=[],
+            overwrite_contours=False,
+            zoom=10,
             **kwargs,
             ):
         ''' Plot overview map with folium
@@ -240,16 +282,28 @@ class campaign(object):
 
         if ignore=='all':
             ignore=self._units
+        if "ship" not in ignore:
+            ignore = ignore + ["ship"]
 
         m = folium.Map(location=[self.lat_mid, self.lon_mid],
                        width=width,
                        height=height,
-                       zoom_start=11,
+                       zoom_start=zoom,
                        tiles=tiles,
                       )
 
         # bathymetric contours
-        contours_geojson = load_bathy_contours()
+        contour_file = self.pathp+'contours.geojson'
+        if (not os.path.isfile(contour_file) or
+            (os.path.isfile(contour_file) and overwrite_contours)
+            ):
+            store_bathy_contours(self.bathy['label'],
+                                 contour_file=contour_file,
+                                 levels=self.bathy['levels'],
+                                 bounds=self.bounds,
+                                 )
+        contours_geojson = load_bathy_contours(contour_file)
+
         tooltip = folium.GeoJsonTooltip(fields=['title'],
                                         aliases=['depth'],
                                         )
@@ -275,6 +329,7 @@ class campaign(object):
         for uname, u in self.items():
             if uname not in ignore:
                 for d in u:
+                    #print(uname, d.start.lon, d.start.lat, d.end.lon, d.end.lat)
                     folium.Polygon([(d.start.lat, d.start.lon),
                                     (d.end.lat, d.end.lon)
                                     ],
@@ -312,7 +367,11 @@ class campaign(object):
 
         return m
 
-    def timeline(self, height=.3, legend_loc=3):
+    def timeline(self,
+                 height=.3,
+                 legend_loc=3,
+                 skip_ship=True,
+                 ):
         """ Plot the campaign deployment timeline
         """
 
@@ -323,6 +382,8 @@ class campaign(object):
         yticks, yticks_labels = [], []
         starts, ends = [], []
         for uname, u in self.items():
+            if skip_ship and uname=="ship":
+                continue
             for d in u:
                 start = mdates.date2num(d.start.time)
                 end = mdates.date2num(d.end.time)
@@ -334,9 +395,10 @@ class campaign(object):
             yticks_labels.append(uname)
             y+=-1
 
+        ax.set_title(self.name)
         ax.set_yticks(yticks)
         ax.set_yticklabels(yticks_labels)
-        self.add_legend(ax, loc=legend_loc)
+        self.add_legend(ax, loc=legend_loc, skip_ship=skip_ship)
 
         # assign date locator / formatter to the x-axis to get proper labels
         locator = mdates.AutoDateLocator(minticks=3)
@@ -348,6 +410,20 @@ class campaign(object):
         delta_time = max(ends) - min(starts)
         plt.xlim([min(starts)-delta_time*.05, max(ends)+delta_time*.05])
         plt.ylim([y+1-2*height,2*height])
+
+    def add_legend(self, ax, labels=None, skip_ship=True, **kwargs):
+        """ Add legend for units on an axis,
+        Used for timelines as well as maps
+        """
+        from matplotlib.lines import Line2D
+        if labels is None:
+            labels = list(self._units)
+        if skip_ship:
+            labels = [l for l in labels if l!="ship"]
+        custom_lines = [Line2D([0], [0], color=self[label]['color'], lw=4)
+                        for label in labels
+                        ]
+        ax.legend(custom_lines, labels, **kwargs)
 
     def timeline_old(self):
         """ older version of timeline
@@ -373,14 +449,19 @@ class campaign(object):
 
         Returns
         -------
-        iridium: dict
+        output: dict
             {'unit0': {'deployment0': data, ...}}
         """
 
         if item=='ship':
-            return xr.open_dataset(self.pathp+'ship.nc').to_dataframe()
+            ship_file = self.pathp+'ship.nc'
+            if os.path.isfile(ship_file):
+                return xr.open_dataset(ship_file).to_dataframe()
+            else:
+                return
 
-        data_files = self.get_pfiles(item=item)
+        data_files = self._get_processed_files(item=item)
+
         _files = [f.split('/')[-1] for f in data_files]
 
         units = set(f.split('_')[0] for f in _files)
@@ -393,27 +474,29 @@ class campaign(object):
         data = {}
         for u in units:
             _files = [f.split('/')[-1]
-                      for f in self.get_pfiles(unit=u,
+                      for f in self._get_processed_files(unit=u,
                                                item=item,
                                                )
                       ]
             deployments = [f.split('_')[2].split('.')[0] for f in _files]
-            data[u] = {d: gps_obj(file=self.get_pfiles(unit=u,
-                                                       item=item,
-                                                       deployment=d,
-                                                       )
-                              )
+            data[u] = {d: _load_processed_file(
+                self._get_processed_files(unit=u,
+                                          item=item,
+                                          deployment=d,
+                                          )
+                )
                        for d in deployments
                        }
         return data
 
-    def get_pfiles(self,
+    def _get_processed_files(self,
                    unit='*',
                    item='*',
                    deployment='*',
                    extension='nc',
                    ):
         """ Return processed data files
+
         Parameters
         ----------
         unit, item, d, extention: str, optional
@@ -425,3 +508,15 @@ class campaign(object):
             return glob(self.pathp+unit+'_'+item+'_'+deployment+'.'+extension)
         else:
             return self.pathp+unit+'_'+item+'_'+deployment+'.'+extension
+
+def _load_processed_file(file, **kwargs):
+    """ load preprocessed file, select object type based on filename
+    """
+    if "_gps_" in file or "_iridium" in file:
+        from .gps import gps
+        return gps(file=file)
+    elif "emission" in file:
+        from .source import source_rtsys
+        return source_rtsys(file=file)
+    else:
+        return file+" not loaded"

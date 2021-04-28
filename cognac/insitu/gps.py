@@ -2,6 +2,7 @@
 # ------------------------- GPS data -----------------------------------
 #
 
+import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -21,6 +22,7 @@ from bokeh.models import ColumnDataSource, HoverTool
 from bokeh.plotting import figure
 
 from .utils import get_distance, print_degmin
+from .events import event, deployment
 
 gps_attrs = ['label', 'd']
 
@@ -28,7 +30,10 @@ class gps(object):
     ''' Data container for gps data
     '''
     def __init__(self,
-                 lon=None, lat=None, time=None,
+                 lon=None,
+                 lat=None,
+                 time=None,
+                 df=None,
                  file=None,
                  label='gps',
                  ):
@@ -43,6 +48,14 @@ class gps(object):
                 self._read_nc(file)
             else:
                 assert False, 'You need to pass either a pickle or netcdf file'
+            return
+        #
+        if (df is not None
+            and isinstance(df, pd.DataFrame)
+            and "lon" in df
+            and "lat" in df
+            ):
+            self.d = df
             return
         #
         self.d = pd.DataFrame()
@@ -71,6 +84,12 @@ class gps(object):
     def __bool__(self):
         return not self.empty()
 
+    def __repr__(self):
+        return 'cognac.insitu.gps.gps({})'.format(str(self))
+
+    def __str__(self):
+        return self.label+" - {} points".format(len(self.d.index))
+
     def empty(self):
         return self.d.empty
 
@@ -86,27 +105,31 @@ class gps(object):
         if sort:
             self.d = self.d.sortby('time')
 
-    def trim(self, t0, t1, inplace=True):
+    def trim(self, t0, t1, inplace=False):
         ''' select data between t0 and t1 '''
         if inplace:
             # beware of exact time indexing:
             # https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#exact-indexing
             #self.d = self.d[t0:t1]
             time = self.d.index
-            self.d = self.d.loc[(time > t0) & (time <= t1)]
+            self.d = self.d.loc[(time >= t0) & (time <= t1)]
         else:
             gp = copy.deepcopy(self)
-            gp.trim(t0,t1)
+            gp.trim(t0,t1, inplace=True)
             return gp
 
-    def clean(self, d, inplace=True):
+    def clean(self, d, inplace=False):
         '''Use deployment to clean gps data'''
         if inplace:
             self.trim(d.start.time, d.end.time)
         else:
-            return self.trim(d.start.time, d.end.time, inplace=False)
+            gp = copy.deepcopy(self)
+            gp.trim(d.start.time, d.end.time, inplace=True)
+            return gp
 
     def sort(self):
+        """ sort by time, inplace method
+        """
         self.d.sort_index(inplace=True)
 
     def resample(self,
@@ -149,14 +172,104 @@ class gps(object):
                         )
             return gp
 
+    def reindex(self, time, inplace=False):
+        """ Reindex time line based on another time line
+
+        Parameters
+        ----------
+        time: pd.Series, tuple
+            Series of timestamps or tuple containing start and end time
+        inplace: boolean, optional
+            Turn on in place reindexing, default to False
+        """
+        if inplace:
+            if isinstance(time, deployment):
+                time = (time.start.time, time.end.time)
+            if isinstance(time, tuple):
+                dt = self.d.reset_index()['time'].diff().median()
+                time = pd.date_range(time[0], time[1], freq=dt).rename('time')
+            self.d = self.d.reindex(time)
+        else:
+            gp = copy.deepcopy(self)
+            gp.reindex(time, inplace=True)
+            return gp
+
+    def reindex_like(self, other, inplace=False):
+        """ Reindex time line based on another gps object
+
+        Parameters
+        ----------
+        other: gps obj
+            gps object with time line to reindex on
+        inplace: boolean, optional
+            Turn on in place reindexing, default to False
+        """
+        if inplace:
+            self.d = self.d.reindex_like(other.d)
+        else:
+            gp = copy.deepcopy(self)
+            gp.reindex_like(other, inplace=True)
+            return gp
+
+    def fillna(self, other=None, interp=None, inplace=False):
+        """ fill NaNs with another gps object and/or interpolate existing data
+        """
+        if not inplace:
+            gp = copy.deepcopy(self)
+            gp.fillna(other=other, interp=interp, inplace=True)
+            return gp
+        if other is not None:
+            self.d = self.d.fillna(other.d)
+        if interp is not None:
+            if isinstance(interp, dict):
+                kwargs=interp
+            else:
+                kwargs=dict(method='linear')
+            self.d = self.d.interpolate(**kwargs)
+
+    def fill_with_d(self, d):
+        # !! needs update
+        # convert to array
+        lon = np.array(self.lon)
+        lat = np.array(self.lat)
+        time = np.array(self.time)
+        # add first point
+        i = np.where(time >= d.start.time)[0][0]
+        if np.isnan(lon[i]):
+            lon[i] = d.start.lon
+            lat[i] = d.start.lat
+        # add last point
+        i = np.where(time <= d.end.time)[0][-1]
+        if np.isnan(lon[i]):
+            lon[i] = d.end.lon
+            lat[i] = d.end.lat
+        # fill in gaps
+        inonan = np.where( (time >= d.start.time) & (time <= d.end.time) & (~np.isnan(lon)))
+        inan = np.where( (time >= d.start.time) & (time <= d.end.time) & (np.isnan(lon)) )
+        lon[inan] = interp1d(time[inonan], lon[inonan], kind='slinear',
+                                  bounds_error=False)(time[inan])
+        lat[inan] = interp1d(time[inonan], lat[inonan], kind='slinear',
+                                  bounds_error=False)(time[inan])
+        # back to list
+        self.lon = lon.tolist()
+        self.lat = lat.tolist()
+        # store array of interpolated values
+        self.i_filled = inan
+
+    def fill_with_deps(self, dep):
+        '''wrapper for lists of deployments'''
+        # !! needs update
+        for d in dep:
+            self.fill_with_d(d)
+
     def join(self, other, rule):
         ''' Resample and join 2 gps objects
         Returns a dataframe
         '''
         assert self.label is not other.label, 'labels must differ'
         # update velocity fields
-        self.compute_velocity()
-        other.compute_velocity()
+        self.compute_velocity(inplace=True)
+        other.compute_velocity(inplace=True)
         # resample
         d_resampled = self.resample(rule).d
         other_resampled = other.resample(rule).d
@@ -183,29 +296,39 @@ class gps(object):
         return d
 
     #
-    def compute_velocity(self, inplace=True):
+    def compute_velocity(self, inplace=False):
+        """ update velocity
+        """
         if not self:
             return
         d = self.d
         # remove duplicates
         d = d[~d.index.duplicated(keep='first')]
         #
-        dl = get_distance(d['lon'],
-                          d['lat'],
-                          d['lon'].shift(periods=1),
-                          d['lat'].shift(periods=1))
+        lon, lat = d['lon'], d['lat']
+        lon_p = d['lon'].shift(periods=1)
+        lat_p = d['lat'].shift(periods=1)
+        dl = get_distance(lon, lat, lon_p, lat_p)
+        dl_x = get_distance(lon, lat, lon_p, lat)
+        dl_x = dl_x * np.sign(lon_p - lon)
+        dl_y = get_distance(lon, lat, lon, lat_p)
+        dl_y = dl_y * np.sign(lat_p - lat)
+        #
         dt = pd.Series(d.index).diff().dt.total_seconds()
         dt.index = dl.index
-        v = (dl/dt).rename('velocity')
-        if not inplace:
-            return v
-        if 'velocity' in self.d:
-            self.d.update(v)
+        V = [(dl/dt).rename('velocity'),
+             (dl_x/dt).rename('u'),
+             (dl_y/dt).rename('v'),
+             ]
+        if inplace:
+            for v in V:
+                self.d[v.name] = v
         else:
-            self.d = pd.concat([d, v], axis=1)
+            _d = d.drop(columns=[v.name for v in V], errors="ignore")
+            return pd.concat([_d,] + V, axis=1)
 
+    ## I/O
 
-    #
     def to_pickle(self, file):
         dictout = {key: getattr(self,key) for key in gps_attrs}
         pickle.dump( dictout, open( file, 'wb' ) )
@@ -228,7 +351,9 @@ class gps(object):
         self.d = ds.to_dataframe()
         self.label = ds.label
 
-    #
+
+    ## plot
+
     def plot(self,
              fac=None,
              label='',
@@ -236,7 +361,7 @@ class gps(object):
              lw=2.,
              t0=None,
              t1=None,
-             ll_lim=None,
+             bounds=None,
              offset=0.02,
              start_marker='o',
              end_marker='*',
@@ -250,12 +375,12 @@ class gps(object):
             lat = lat[:t1]
         if fac:
             ax = fac[1]
-            if ll_lim is None:
-                ll_lim = ax.get_extent()
+            if bounds is None:
+                bounds = ax.get_extent()
         else:
             ax = plt.subplot(111)
-            if ll_lim is None:
-                ll_lim = [min(lon)-.1, max(lon)+.1, min(lat)-.1, max(lat)+.1]
+            if bounds is None:
+                bounds = [min(lon)-.1, max(lon)+.1, min(lat)-.1, max(lat)+.1]
         ax.plot(lon, lat, lw=lw, linestyle=linestyle, **kwargs)
         if 'marker' in kwargs:
             del kwargs['marker']
@@ -263,8 +388,8 @@ class gps(object):
             ax.scatter(lon[0], lat[0], 20, marker=start_marker, **kwargs)
         if end_marker:
             ax.scatter(lon[-1], lat[-1], 20, marker=end_marker, **kwargs)
-        xoffset = offset * (ll_lim[1] - ll_lim[0])
-        yoffset = offset * (ll_lim[3] - ll_lim[2])
+        xoffset = offset * (bounds[1] - bounds[0])
+        yoffset = offset * (bounds[3] - bounds[2])
         ax.text(lon[-1]+xoffset, lat[-1]-yoffset, label,
                 fontsize=9, **kwargs)
 
@@ -296,7 +421,7 @@ class gps(object):
     def plot_bk(self, unit=None, rule=None):
 
         if 'velocity' not in self.d:
-            self.compute_velocity()
+            self.compute_velocity(inplace=True)
 
         output_notebook()
         TOOLS = 'pan,wheel_zoom,box_zoom,reset,help'
@@ -393,41 +518,6 @@ class gps(object):
         yoffset = 0.01 * (map.ymax - map.ymin)
         plt.text(x[-1]+xoffset, y[-1]-yoffset, label, fontsize=9, **kwargs)
 
-    def fill_with_d(self, d):
-        # !! needs update
-        # convert to array
-        lon = np.array(self.lon)
-        lat = np.array(self.lat)
-        time = np.array(self.time)
-        # add first point
-        i = np.where(time >= d.start.time)[0][0]
-        if np.isnan(lon[i]):
-            lon[i] = d.start.lon
-            lat[i] = d.start.lat
-        # add last point
-        i = np.where(time <= d.end.time)[0][-1]
-        if np.isnan(lon[i]):
-            lon[i] = d.end.lon
-            lat[i] = d.end.lat
-        # fill in gaps
-        inonan = np.where( (time >= d.start.time) & (time <= d.end.time) & (~np.isnan(lon)))
-        inan = np.where( (time >= d.start.time) & (time <= d.end.time) & (np.isnan(lon)) )
-        lon[inan] = interp1d(time[inonan], lon[inonan], kind='slinear',
-                                  bounds_error=False)(time[inan])
-        lat[inan] = interp1d(time[inonan], lat[inonan], kind='slinear',
-                                  bounds_error=False)(time[inan])
-        # back to list
-        self.lon = lon.tolist()
-        self.lat = lat.tolist()
-        # store array of interpolated values
-        self.i_filled = inan
-
-    def fill_with_deps(self, dep):
-        '''wrapper for lists of deployments'''
-        # !! needs update
-        for d in dep:
-            self.fill_with_d(d)
-
 
 def read_gps_alees(file, label='gps', verbose=False):
 
@@ -464,14 +554,17 @@ def read_gps_lops(file, label='gps', verbose=False):
             gp = gp + read_gps_lops(f, verbose=verbose)
     else:
         print('Reads ' + file)
-        gpsfile = pynmea2.NMEAFile(file)
+        #gpsfile = pynmea2.NMEAFile(file)
+        gpsfile = open(file)
         data = pd.DataFrame()
         t = None
-        for s in gpsfile:
+        #for s in gpsfile:
+        for s in gpsfile.readlines():
             if verbose:
                 print(s)
-            if len(s.fields)>0 and hasattr(s, 'is_valid') and s.is_valid:
-                d = parse_nmea_sentence(s, t=t)
+            #  if len(s.fields)>0 and hasattr(s, 'is_valid') and s.is_valid:
+            d = parse_nmea_sentence(s, t=t)
+            if d:
                 data = data.append(d, ignore_index=True)
                 t = d['time']
         #
@@ -479,10 +572,26 @@ def read_gps_lops(file, label='gps', verbose=False):
 
     return gp
 
-def parse_nmea_sentence(s, t=None):
+def parse_nmea_sentence(line, t=None):
+
+    try:
+        s = pynmea2.parse(line)
+    except:
+        return None
+
+    time = None
+
     if 'GPRMC' in s.identifier():
-        if len(s.fields)>0 and all([s.datestamp, s.timestamp]):
-            time = datetime.datetime.combine(s.datestamp, s.timestamp)
+        #print(line)
+        #print(s.datestamp, s.timestamp, type(s.datestamp), type(s.timestamp))
+        if (len(s.fields)>0
+            and isinstance(s.datestamp, datetime.date)
+            and isinstance(s.timestamp, datetime.time)
+            ):
+            try:
+                time = datetime.datetime.combine(s.datestamp, s.timestamp)
+            except:
+                print(line)
     elif 'GPGGA' in s.identifier():
         if t:
             time = datetime.datetime(t.year,
@@ -496,10 +605,18 @@ def parse_nmea_sentence(s, t=None):
                 time+=datetime.timedelta(days=1)
         else:
             time = t
-    return dict(lon=s.longitude,
-                lat=s.latitude,
-                time=time
-                )
+
+    if (
+        time is not None
+        and hasattr(s, 'longitude')
+        and hasattr(s, 'latitude')
+    ):
+        return dict(lon=s.longitude,
+                    lat=s.latitude,
+                    time=time
+                    )
+    else:
+        return None
 
 def interp_gps(time, gp):
     '''Interpolate lists of gps onto a given timeline
