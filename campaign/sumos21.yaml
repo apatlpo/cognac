@@ -70,7 +70,18 @@ units:
       d1:
       - 2021-03-03 19:05:00 -7 10.83 46 20.42
       - 2021-03-03 19:35:00 -7 10.83 46 20.42
-    path: ctd/
+    columns:
+      - scan
+      - timeJ
+      - longitude
+      - latitude
+      - pressure
+      - temperature
+      - conductivity
+      - salinity
+      - altimeter
+      - flag
+    path: deploiement1/ctd/
     color: chocolate
   spots:
     deployments:
@@ -78,7 +89,7 @@ units:
       - "2021-02-22 09:00:00"
       - "2021-03-05 15:00:00"
     path: spots/
-    color: darkkhahi
+    color: darkkhaki
   ship:
     deployments:
       all:

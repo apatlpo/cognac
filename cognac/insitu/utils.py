@@ -86,6 +86,21 @@ def plot_map(fig=None,
              grid_linewidth=1,
              **kwargs,
              ):
+    """ Plot a map of the campaign area
+
+    Parameters
+    ----------
+    fig: matplotlib.figure.Figure, optional
+        Figure handle, create one if not passed
+    coast: str, optional
+        Determines which coast dataset to use, e.g. ['10m', '50m', '110m']
+    bounds: list, optional
+        Geographical bounds, e.g. [lon_min, lon_max, lat_min, lat_max]
+    cp: cognac.utils.campaign, optional
+        Campaign object
+    grid_linewidth: float, optional
+        geographical grid line width
+    """
     crs = ccrs.PlateCarree()
     #
     if fig is None:

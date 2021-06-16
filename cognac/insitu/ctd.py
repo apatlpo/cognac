@@ -3,8 +3,9 @@
 # ------------------------- ctd data -----------------------------------
 #
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+import xarray as xr
 
 import gsw
 
@@ -22,7 +23,13 @@ ctd_attrs = ['d_time', 'd_depth', 'file', 'start_date', 'dt']
 class ctd(object):
     """ Contains CTD cast data
     """
-    def __init__(self, file, **kwargs):
+    def __init__(self,
+                 file,
+                 label="ctd",
+                 **kwargs,
+                 ):
+        self.label = label
+        #
         if file is not None:
             self.file = file
             if '.cnv' in file:
@@ -32,6 +39,9 @@ class ctd(object):
             elif '.p' in file:
                 self._file_striped = self.file.rstrip('.p')
                 self._read_pickle(file)
+            elif '.nc' in file:
+                self._file_striped = self.file.rstrip('.nc')
+                self._read_nc(file)
         else:
             print('You need to provide a file name')
 
@@ -65,9 +75,9 @@ class ctd(object):
                           comment='#', delim_whitespace=True,
                           index_col=0,
                           )
-        d = d[~d.index.str.contains("\*")]
-        for c in columns:
-            if c!='sample':
+        d = d[~d.index.str.contains("\*", na=False)]
+        for c in columns[1:]:
+            if c!='sample' and c!="scan":
                 d[c] = d[c].astype(np.float64)
         #dtypes = {c: np.float64 if }
         #dtypes = {'pressure': np.float64, 'temperature': np.float64,
@@ -84,6 +94,7 @@ class ctd(object):
         return d
 
     def _read_cnv_header(self, file):
+        self._cnv_names = []
         with open(file) as f:
             for line in f:
                 if line.strip()[0] in ['#','*']:
@@ -93,6 +104,9 @@ class ctd(object):
                         self.start_date = pd.datetime.strptime(date, '%b %d %Y %H:%M:%S')
                     elif 'interval' in line:
                         self.dt = float(line.split(':')[1].strip())
+                    elif ' name ' in line:
+                        _name = line.split("=")[1].split(":")[0].strip()
+                        self._cnv_names.append(_name)
         # compute time line
         if hasattr(self,'start_date') and hasattr(self,'dt'):
             self.d_time['time'] = self.start_date \
@@ -109,6 +123,18 @@ class ctd(object):
         p = pickle.load( open( file, 'rb' ) )
         for key in ctd_attrs:
             setattr(self, key, p[key])
+
+    #
+    def to_nc(self, file, **kwargs):
+        ds = self.d_depth.to_xarray()
+        ds.attrs['label'] = self.label
+        ds.to_netcdf(file, **kwargs)
+        print('Data store to '+file)
+
+    def _read_nc(self, file):
+        ds = xr.open_dataset(file)
+        self.d_depth = ds.to_dataframe()
+        self.label = ds.label
 
     # cleaning and resampling
     def resample(self, rule, inplace=True, **kwargs):
@@ -147,10 +173,11 @@ class ctd(object):
     def _update_eos(self):
         assert hasattr(self, 'd_depth'), \
                 'You need to run clean_and_depth_bin first'
-        d = self.d_depth
-        d['SA'] = gsw.SA_from_SP(d.salinity, d.index, d.longitude, d.latitude)
-        d['CT'] = gsw.CT_from_t(d.SA, d.temperature, d.index)
-        d['sound_speed'] = gsw.sound_speed(d.SA, d.CT, d.index)
+        d = self.d_depth.reset_index()
+        d['SA'] = gsw.SA_from_SP(d.salinity, d.pressure, d.longitude, d.latitude)
+        d['CT'] = gsw.CT_from_t(d.SA, d.temperature, d.pressure)
+        d['sound_speed'] = gsw.sound_speed(d.SA, d.CT, d.pressure)
+        self.d_depth = d.set_index("pressure")
 
     # plotting
     def plot_tseries(self):

@@ -244,6 +244,9 @@ class campaign(object):
             yield key, value
 
     def plot_map(self, **kwargs):
+        """ Plot map
+        Wrapper around utils.plot_map, see related doc
+        """
         dkwargs = dict(bounds=self.bounds,
                        bathy=self.bathy['label'],
                        levels=self.bathy['levels'],
@@ -329,6 +332,8 @@ class campaign(object):
         for uname, u in self.items():
             if uname not in ignore:
                 for d in u:
+                    if d.start.lat is None:
+                        continue
                     #print(uname, d.start.lon, d.start.lat, d.end.lon, d.end.lat)
                     folium.Polygon([(d.start.lat, d.start.lon),
                                     (d.end.lat, d.end.lon)
@@ -446,6 +451,7 @@ class campaign(object):
 
     def load(self, item, unit=None):
         """ load processed data files
+        recall item
 
         Returns
         -------
@@ -453,10 +459,17 @@ class campaign(object):
             {'unit0': {'deployment0': data, ...}}
         """
 
+        # particular units
         if item=='ship':
             ship_file = self.pathp+'ship.nc'
             if os.path.isfile(ship_file):
                 return xr.open_dataset(ship_file).to_dataframe()
+            else:
+                return
+        elif item=="argo":
+            argo_file = self.pathp+'argo.nc'
+            if os.path.isfile(argo_file):
+                return xr.open_dataset(argo_file).compute()
             else:
                 return
 
@@ -478,7 +491,8 @@ class campaign(object):
                                                item=item,
                                                )
                       ]
-            deployments = [f.split('_')[2].split('.')[0] for f in _files]
+            deployment_index=2 if item is not None else 1
+            deployments = [f.split('_')[deployment_index].split('.')[0] for f in _files]
             data[u] = {d: _load_processed_file(
                 self._get_processed_files(unit=u,
                                           item=item,
@@ -504,10 +518,14 @@ class campaign(object):
             Typical file path: self.pathp+unit+'_'+item+'_'+deployment+'.'+extension
 
         """
-        if any([_=='*' for _ in [unit, item, deployment]]):
-            return glob(self.pathp+unit+'_'+item+'_'+deployment+'.'+extension)
+        if item is None:
+            _item = ""
         else:
-            return self.pathp+unit+'_'+item+'_'+deployment+'.'+extension
+            _item = item+'_'
+        if any([_=='*' for _ in [unit, item, deployment]]):
+            return glob(self.pathp+unit+'_'+_item+deployment+'.'+extension)
+        else:
+            return self.pathp+unit+'_'+_item+deployment+'.'+extension
 
 def _load_processed_file(file, **kwargs):
     """ load preprocessed file, select object type based on filename
@@ -518,5 +536,8 @@ def _load_processed_file(file, **kwargs):
     elif "emission" in file:
         from .source import source_rtsys
         return source_rtsys(file=file)
+    elif "ctd" in file:
+        from .ctd import ctd
+        return ctd(file=file)
     else:
         return file+" not loaded"
