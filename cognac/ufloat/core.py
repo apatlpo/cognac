@@ -230,14 +230,14 @@ class autonomous_float():
         rhof = self.rho(p=p, temp=tempw, v=v)
         f_b += self.m*rhow/rhof*g
         # drag
-        f_d = self.get_drag_force(w, waterp.detadt)
+        f_d = self.get_drag_force(w, waterp.detadt, Lv)
         # we ignore DwDt terms for now
         if sum:
             return f_b+f_d
         else:
             return f_b+f_d, f_b, f_d
 
-    def get_drag_force(self, w, w_water):
+    def get_drag_force(self, w, w_water, Lv):
         cd = self.c1/(2*Lv) * np.abs(w - w_water)
         if self.c0 != 0:
             N2 = waterp.get_N2(z)
@@ -450,21 +450,22 @@ class autonomous_float():
             if ctrl:
                 # activate control only if difference between the target and actual vertical
                 # position is more than the dz_nochattering threshold
-                _ctrl_now = ( (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
+                ctrl_now = ( (np.abs(self.z-z_target(t)) > self.ctrl.dz_nochattering) \
                           and t_modulo_dt(t, self.ctrl.dt, dt_step) )
-                if _ctrl_now:
+                if ctrl_now:
                     u = self.get_control(z_target, t, waterp, _log_now)
-                if _ctrl_now:
                     _dt = self.ctrl.dt
                 else:
                     _dt = 0.
                 if self.ctrl.continuous:
+                    # apply control at each model timestep
                     _dt = dt_step
                 _v0 = self.piston.vol
                 if 'feedback1' in self.ctrl.mode:
-                    if _ctrl_now:
+                    if ctrl_now:
                         self.piston.update_vol(u)
                 else:
+                    # u units = m^3/s
                     self.piston.update(_dt, u)
                 self.v = self.piston.vol
                 # energy integration, 1e4 converts from dbar to Pa
@@ -520,7 +521,9 @@ class autonomous_float():
                 ctrl_default.update({'tau': 60., 'mode': 'sliding',
                                      'waterp': waterp, 'Lv': self.L})
             elif ctrl['mode'] == 'pid':
-                ctrl_default.update({'error':0.,'integral': 0.})
+                ctrl_default.update(Kp=0., Ki=0., Kd=0.)
+            elif ctrl['mode'] == 'pid_position':
+                ctrl_default.update(dvdt=0., Kp=0., Ki=0., Kd=0.)
             elif 'feedback' in ctrl['mode']:
                 ctrl_default.update({'tau': 3.25,  # Set the root of feed-back regulation # s assesed by simulation
                                      'nu': 0.03*2./np.pi, # Set the limit speed : 3cm/s assesed by simulation
@@ -548,7 +551,12 @@ class autonomous_float():
         if _c.mode=='sliding':
             u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
         elif _c.mode=='pid':
-            u = _c.get_u_pid(z_target, t, self.z)
+            u = _c.get_u_pid(z_target, t, self.z, log)
+        elif _c.mode=='pid_position':
+            # this is not proper PID ...
+            d_pid = _c.get_u_pid(z_target, t, self.z, log)
+            #u = np.sign(d_pid - self.piston.d) * _c.dvdt
+            u = np.sign(d_pid) * _c.dvdt
         elif _c.mode=='feedback1':
             _Ve = self.compute_force(self.z, 0., waterp,
                                      _c.Lv, v=0., sum=True) \
@@ -662,8 +670,8 @@ class piston():
             params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0.,
                       'omega': 0., 'lead': 1,
                       'phi_min': 0., 'd_min': 0., 'd_max': 0.09,'vol_min': 0.,
-                      'translation_max': 0.12,
-                      'translation_min': 0.03,
+                      'translation_max': 0.01, # m/s !!! wild guess
+                      'translation_min': 0.001, # m/s !!! wild guess
                       'efficiency': .1,
                       'd_increment': 0.12*4./5600.,
                       'd_offset': .03, # big piston offset
@@ -764,9 +772,9 @@ class piston():
         Parameters
         ----------
         dt: float
-            time interval
+            time interval in seconds
         dvdt: float
-            desired volume rate of change
+            desired volume rate of change in m^3/s
         """
         omega=self.dvdt2omega(dvdt)
         self.update_omega(omega)
@@ -812,14 +820,14 @@ class piston():
 
 #--------------------- conversion methods --------------------------------------
 
-    def omega2dvdt(self,omega):
+    def omega2dvdt(self, omega):
         #to compute omega for the ENSTA float:
         #the motor of the piston needs 48 notches to complete a full rotation
         #it can reach until 30 rotations a seconde
         #so omega = 2*pi*30/48 = 3.9 rad/s
         return omega*self.lead/2.*self.r**2
 
-    def dvdt2omega(self,dvdt):
+    def dvdt2omega(self, dvdt):
         return dvdt/(self.lead/2.*self.r**2)
 
     def phi2d(self,phi):

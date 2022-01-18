@@ -23,10 +23,17 @@ class control(object):
             self.lbd2 = 1/self.tau**2
             self.A_coeff = g*self.rho_cte/((self.a+1)*self.m)
             self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
+        if "pid" in self.mode:
+            self.error= 0.
+            self.integral = 0.
+            self.derivative = 0.
 
     def __repr__(self):
-        _core_params = ['dt', 'dz_nochattering', 'tau', 'nu', 'delta',
-                        'Kp','Ki','Kd', 'continuous']
+        _core_params = ['dt', 'dz_nochattering',
+                        'tau', 'nu', 'delta',
+                        'Kp','Ki','Kd',
+                        'continuous',
+                        ]
         strout='Control parameters: \n'
         strout+='  mode = %s \n'%(self.mode)
         for p in _core_params:
@@ -60,7 +67,7 @@ class control(object):
         u = -u/df3
         return u
 
-    def get_u_pid(self, z_target, t, z):
+    def get_u_pid(self, z_target, t, z, log):
         error = z_target(t) - z
         self.integral += error*self.dt
         self.derivative = (error - self.error)/self.dt
@@ -68,9 +75,16 @@ class control(object):
         u = self.Kp*self.error \
             + self.Ki*self.integral \
             + self.Kd*self.derivative
+        if log:
+            self.log.store(time=t,
+                           error=self.error,
+                           derivative=self.derivative,
+                           integral=self.integral,
+                           u=u,
+                           )
         return u
 
-    def get_u_feedback1(self, z_target, t, z, w, V, 
+    def get_u_feedback1(self, z_target, t, z, w, V,
                         gamma, log
                         ):
         u = _control_feedback1(self.lbd1, self.nu, self.delta,
@@ -81,18 +95,18 @@ class control(object):
                            **{'u%d'%i: u[i] for i in range(len(u))})
         return sum(u)
 
-    def get_u_feedback2(self, z_target, t, z, w, dwdt, 
-                        gamma1, log, 
+    def get_u_feedback2(self, z_target, t, z, w, dwdt,
+                        gamma1, log,
                         gamma2=0., c1=1.
                         ):
-        u = _control_feedback2(self.lbd1, self.lbd2, 
+        u = _control_feedback2(self.lbd1, self.lbd2,
                                self.nu, self.delta,
-                               z, w, dwdt, 
-                               z_target(t), 
+                               z, w, dwdt,
+                               z_target(t),
                                gamma1,
                                gamma2,
                                c1,
-                               self.A_coeff, 
+                               self.A_coeff,
                                self.B_coeff
                                )
         if log:
@@ -100,13 +114,13 @@ class control(object):
                            **{'u%d'%i: u[i] for i in range(len(u))})
         return sum(u)
 
-def _control_feedback1(lbd1, 
-                       nu, delta, 
-                       z, dz, 
-                       z_t, 
-                       V, 
+def _control_feedback1(lbd1,
+                       nu, delta,
+                       z, dz,
+                       z_t,
+                       V,
                        gamma,
-                       A, 
+                       A,
                        B,
                        ):
     ''' Control feedback of the float position
@@ -144,8 +158,8 @@ def _control_feedback1(lbd1,
     #
     y = x0 - nu*np.arctan(e/delta)
     #
-    return ((1/A)*lbd1*y, 
-            (1/A)*nu/delta*x0/D, 
+    return ((1/A)*lbd1*y,
+            (1/A)*nu/delta*x0/D,
             -(1/A)*B*np.abs(x0)*x0,
             -x3,
             x2*x1
@@ -199,10 +213,10 @@ def _control_feedback2(lbd1, lbd2,
     y = x0 - nu*np.arctan(e/delta)
     dy = dx0 + nu*x0/(delta*D)
     #
-    return ((1/A)*lbd1*dy, 
+    return ((1/A)*lbd1*dy,
             (1/A)*lbd2*y,
             (1/A)*nu/delta*(dx0*D + 2*e*x0**2/delta**2)/(D**2),
-            (1/A)*2*B*c1*abs(x0)*dx0, 
+            (1/A)*2*B*c1*abs(x0)*dx0,
             gamma1*x0+gamma1*x0**2,
            )
 
@@ -234,7 +248,7 @@ class kalman_core(object):
         if 'gamma_alpha' in params:
             params['gamma_alpha'] = np.diag(params['gamma_alpha'])
         elif 'gamma_alpha_scaled' in params:
-            params['gamma_alpha'] = (params['dt']**2 
+            params['gamma_alpha'] = (params['dt']**2
                                     * np.diag(params['gamma_alpha_scaled'])
                                     )
         # observation noise covariance
@@ -271,12 +285,12 @@ class kalman_core(object):
         """
         self.x_hat = np.array(self.x_init)
         self.Nx = self.x_hat.size
-        
+
     def init_operators(self):
         """ Initialize operators: linearized dynamics and observation
         Only depth is observed here
         """
-        self.A = np.eye(self.Nx)        
+        self.A = np.eye(self.Nx)
         self.C = np.zeros((1,self.Nx))
         self.C[0,1] = 1
 
@@ -293,9 +307,9 @@ class kalman_core(object):
                                            self.C, self.gamma_beta
                                            )
 
-    def core(self, x0, gamma0, 
-             v, y, 
-             A, gamma_alpha, 
+    def core(self, x0, gamma0,
+             v, y,
+             A, gamma_alpha,
              C, gamma_beta):
         xup, Gup = self.correct(x0, gamma0, y, C, gamma_beta)
         return self.predict(xup, Gup, v, A, gamma_alpha)
@@ -345,7 +359,7 @@ class kalman_core(object):
 
 class kalman_v0(kalman_core):
     ''' Kalman filter for float state estimation
-    
+
     State variables are:
         - downward velocity
         - depth
@@ -354,7 +368,7 @@ class kalman_v0(kalman_core):
     '''
 
     def __init__(self, **params_in):
-        super().__init__(**params_in)        
+        super().__init__(**params_in)
         _required_params = ['c1', 'Lv', 'a']
         assert all([v in params_in for v in _required_params]), \
                 'Kalman filter parameters should include: ' \
@@ -362,7 +376,7 @@ class kalman_v0(kalman_core):
         # state vector
         self.names = ['speed', 'depth', 'gamma_e', 'V_e']
         # useful constants:
-        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))        
+        self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
         # initialize log variables
         self.init_log(['z','w', 'V_e', 'gamma_e'])
 
@@ -388,9 +402,9 @@ class kalman_v0(kalman_core):
         out ={'time': t,
               **{'x_%d'%i: self.x_hat[i] for i in range(4)},
               **{'gamma_%d'%i: self.gamma[i,i] for i in range(4)},
-              'z': -self.x_hat[1], 
+              'z': -self.x_hat[1],
               'w': -self.x_hat[0],
-              'V_e':self.x_hat[3], 
+              'V_e':self.x_hat[3],
               'gamma_e': self.x_hat[2],
               'dwdt': _dwdt,
               'dwdt_diff': dwdt - _dwdt}
@@ -398,7 +412,7 @@ class kalman_v0(kalman_core):
 
 class kalman_v1(kalman_core):
     ''' Kalman filter for float state estimation
-    
+
     State variables are:
         - downward velocity
         - depth
@@ -409,7 +423,7 @@ class kalman_v1(kalman_core):
     '''
 
     def __init__(self, **params_in):
-        super().__init__(**params_in)        
+        super().__init__(**params_in)
         _required_params = ['c1', 'Lv', 'a']
         assert all([v in params_in for v in _required_params]), \
                 'Kalman filter parameters should include: ' \
@@ -420,10 +434,10 @@ class kalman_v1(kalman_core):
         #Cf = np.pi*(ph['diam_collerette']/2.)**2
         #B = 0.5*ph['rho']*Cf/ph['m'] = 0.5 m pi rc^2 / (pi r^2 L) /m = 0.5 (rc/r)^2 /L
         self.B_coeff = self.c1/(2*self.Lv*(1+self.a))
-        # 
+        #
         # initialize log variables
         self.init_log()
-    
+
     def to_seabot(self, f):
         """ Return parameters as scaled for seabot
         Could do a from_seabot ...
@@ -452,12 +466,12 @@ class kalman_v1(kalman_core):
         #
         print(' init_chi: {:.2e}'.format(self.x_init[3]/tick_to_volume))
         print(' init_chi2: {:.2e}'.format(self.x_init[4]/tick_to_volume))
-        
+
     def compare_with_seabot(self, f, cfg=None, log=None, update=False):
         """ Read seabot config parameters and update kalman filter
         """
         tick_to_volume = f.piston.vol_increment
-        
+
         assert any([cfg, log]), 'A path to a config or a log file is needed'
         if cfg:
             cfg = load_config(file)
@@ -475,15 +489,15 @@ class kalman_v1(kalman_core):
         B = 0.5*ph['rho']*Cf/ph['m']
         print('A_coeff: {:3.3e} vs {:3.3e} (seabot)'.format(self.A_coeff, A) )
         print('B_coeff: {:3.3e} vs {:3.3e} (seabot)'.format(self.B_coeff, B) )
-        
+
         # compare covariances
         gamma_alpha, gamma_init, gamma_beta = get_kf_parameters(
-                                        cfg, 
-                                        tick_to_volume, 
+                                        cfg,
+                                        tick_to_volume,
                                         dt_seabot
                                         )
         print('gamma_alpha         : '
-                +' ,'.join(['{:2.2e}'.format(g) for g 
+                +' ,'.join(['{:2.2e}'.format(g) for g
                                     in np.diag(self.gamma_alpha)]))
         print('gamma_alpha (seabot): '
                 +' ,'.join(['{:2.2e}'.format(g) for g in gamma_alpha]))
@@ -503,15 +517,15 @@ class kalman_v1(kalman_core):
 
         # print in terms of seabot inputs
         print('--- in terms of seabot input parameters (with corresponding dt):')
-        _g_alpha, _g_init, _g_beta = _seabot_input_convert(tick_to_volume, 
-                                                           self.gamma_alpha, 
-                                                           self.gamma_init, 
-                                                           self.gamma_beta, 
+        _g_alpha, _g_init, _g_beta = _seabot_input_convert(tick_to_volume,
+                                                           self.gamma_alpha,
+                                                           self.gamma_init,
+                                                           self.gamma_beta,
                                                            self.dt)
-        _g_alpha_sb, _g_init_sb, _g_beta_sb = _seabot_input_convert(tick_to_volume, 
-                                                                    gamma_alpha, 
-                                                                    gamma_init, 
-                                                                    gamma_beta, 
+        _g_alpha_sb, _g_init_sb, _g_beta_sb = _seabot_input_convert(tick_to_volume,
+                                                                    gamma_alpha,
+                                                                    gamma_init,
+                                                                    gamma_beta,
                                                                     dt_seabot)
         print('gamma_alpha         : '
                 +' ,'.join(['{:2.2e}'.format(g) for g in _g_alpha]))
@@ -523,7 +537,7 @@ class kalman_v1(kalman_core):
                 +' ,'.join(['{:2.2e}'.format(g) for g in _g_init_sb]))
         print('gamma_beta          : {:2.2e}'.format(float(_g_beta)))
         print('gamma_beta (seabot) : {:2.2e}'.format(float(_g_beta_sb)))
-        
+
     def update_A(self):
         x, dt, A, B = self.x_hat, self.dt, self.A_coeff, self.B_coeff
         self.A[0,0] = 1 - dt*2.*B*abs(x[0])*x[5]
@@ -533,7 +547,7 @@ class kalman_v1(kalman_core):
         self.A[0,4] = dt*A*x[1]**2
         self.A[0,5] = -B*abs(x[0])*x[0]
         self.A[1,0] = dt
-        
+
     def f(self, x, v):
         dx = np.zeros_like(x)
         dx[0] = -self.A_coeff*(v + x[2] - (x[3]*x[1]+x[4]*x[1]**2)) \
@@ -554,14 +568,14 @@ def _gamma_to_1d(gamma):
         else:
             return gamma
 
-def _seabot_input_convert(tick_to_volume, 
-                          gamma_alpha, 
-                          gamma_init, 
-                          gamma_beta, 
+def _seabot_input_convert(tick_to_volume,
+                          gamma_alpha,
+                          gamma_init,
+                          gamma_beta,
                           dt,
-                          x_init=None, 
+                          x_init=None,
                          ):
-    """ Convert gamma_alpha, gamma_init, gamma_beta in terms of seabot input 
+    """ Convert gamma_alpha, gamma_init, gamma_beta in terms of seabot input
     parameters
     Valid for kalman filter version v1
     """
@@ -576,7 +590,7 @@ def _seabot_input_convert(tick_to_volume,
 
 class kalman_profile(kalman_core):
     ''' Kalman filter for float state estimation
-    
+
     State variables are:
         - downward velocity
         - depth
@@ -630,9 +644,9 @@ class kalman_profile(kalman_core):
         out ={'time': t,
               **{'x_%d'%i: self.x_hat[i] for i in range(4)},
               **{'gamma_%d'%i: self.gamma[i,i] for i in range(4)},
-              'z': -self.x_hat[1], 
+              'z': -self.x_hat[1],
               'w': -self.x_hat[0],
-              'V_e':self.x_hat[3], 
+              'V_e':self.x_hat[3],
               'gamma_e': self.x_hat[2],
               'dwdt': _dwdt,
               'dwdt_diff': dwdt - _dwdt}
