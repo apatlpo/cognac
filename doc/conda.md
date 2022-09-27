@@ -8,7 +8,7 @@ conda update conda
 conda create -n cognac -c conda-forge \
     python=3.8 xarray graphviz netCDF4 dask-jobqueue jupyterlab \
     hvplot geoviews datashader nodejs folium \
-    cartopy gsw cmocean
+    cartopy gsw cmocean pyinterp
 conda activate cognac
 pip install pynmea2
 pip install geojsoncontour

@@ -41,6 +41,9 @@ class autonomous_float():
 
         '''
         #
+        params=dict()
+        if model is None:
+            model="custom"
         self.model = model
         #
         if model.lower() == 'ifremer':
@@ -664,7 +667,9 @@ class piston():
             work supplied
 
         """
-
+        params=dict()
+        if model is None:
+            model="custom"
         if model.lower() == 'ifremer':
             # default parameters: IFREMER float
             params = {'r': 0.0195/2, 'phi': 0., 'd': 0., 'vol': 0.,
