@@ -10,7 +10,11 @@ from IPython.display import Audio
 
 arec_attrs = ['map', 'path']
 
-from acoustics import Signal
+try:
+    from acoustics import Signal
+except:
+    import warnings
+    warnings.warn("acoustics library not installed")
 #from ..acoustic.thinkdsp import *
 
 

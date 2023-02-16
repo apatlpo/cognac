@@ -15,6 +15,7 @@ from .regulation import *
 # useful parameters
 g=9.81
 watth = 1e-6/3.6
+dbar2Pa = 1.e4
 
 #-------------------------- float object with dynamics -------------------------
 
@@ -49,7 +50,7 @@ class autonomous_float():
         if model.lower() == 'ifremer':
             params = {'r': 0.07, 'L': 0.8278,
                       'gamma': 3.78039e-06, 'alpha': 6.98e-5,
-                      'temp0': 0., 'a': 1., 'c0': 0., 'c1': 1.}
+                      'temp0': 20., 'a': 1., 'c0': 0., 'c1': 1.}
             params['m'] = 11.630
             # avec 16 piles : 11.630, avec 32 piles : 13.315
             # compressibility from Paul Troadec's report (p39)
@@ -103,26 +104,64 @@ class autonomous_float():
             z=None,
             waterp=None,
             m=None,
+            air=None,
             ):
         ''' Returns float density i.e. mass over volume
+        Includes the piston volume
+
+        Parameters
+        ----------
+        p: float, optional
+            pressure in dbar
+        temp: float, optional
+            temperature in degC
+        v: float, optional
+            piston volume in m^3 
+        z: float, optional
+            depth in meters, negative downward
+        waterp: cognac.water.waterp, optional
+            water profile
+        m: float
+            float mass in kg
+        air: tuple
+            (v_air, t_air) volume of air (m^3) and temperature (degC) at the surface
         '''
+        V = self.V
+        #
         if v is None:
             if hasattr(self, 'v'):
                 v = self.v
             else:
                 v = 0.
+        V += v
+        #
         if m is None:
             m = self.m
-        if p is not None and temp is not None:
-            _V = self.V*(1.-self.gamma*p+self.alpha*(temp-self.temp0)) + v
-            self._volume = _V # for log purposes
-            return m/_V
-        elif z is not None and waterp is not None:
+        #
+        if p is None:
+            p = waterp.get_p(z)
+        if temp is None:
             # assumes thermal equilibrium
-            p, tempw = waterp.get_p(z), waterp.get_temp(z)
-            return self.rho(p=p, temp=tempw, v=v, m=m)
-        else:
-            print('You need to provide p/temp or z/waterp')
+            temp = waterp.get_temp(z)
+        #
+        if air is not None:
+            # p v_air / temp = p(surface) v_air(surface) / temp(surface) 
+            #   = n R = m/M R
+            # p(surface) = 10 dbar
+            p_surf, v_surf, temp_surf = 10, air[0], air[1]
+            temp_abs_zero = 273.15 # degC
+            R = 8.31446262 # m2 kg s-2 K-1 mol-1, gaz constant
+            M_air = 28.97e-3 # kg/mol, molar mass
+            m_air = dbar2Pa*p_surf * v_surf/(temp_abs_zero+temp_surf)  *M_air/R
+            v_air = v_surf * p_surf/(p_surf+p) \
+                * (temp+temp_abs_zero)/(temp_surf+temp_abs_zero)
+            m += m_air
+            self._m_air = m_air
+            V += v_air
+        #
+        V += self.V*(-self.gamma*p+self.alpha*(temp-self.temp0))
+        self._volume = V # for log purposes
+        return m/V
 
     def volume(self, **kwargs):
         ''' Returns float volume (V+v)
@@ -856,7 +895,7 @@ class piston():
     def vol2phi(self,vol):
         return self.d2phi(self.vol2d(vol))
 
-# ----------------------------- balast -----------------------------------------
+# ----------------------------- ballast -----------------------------------------
 
 _bvariables = ['mass_in_water',
                'mass_in_air',
@@ -864,7 +903,7 @@ _bvariables = ['mass_in_water',
                'piston_displacement'
                ]
 
-class balast(object):
+class ballast(object):
 
     # in db
     pressure = 1.
@@ -872,7 +911,7 @@ class balast(object):
     lon, lat = 4.5, 38.5
 
     def __init__(self, file=None):
-        ''' Class handling the balasting procedure
+        ''' Class handling the ballasting procedure
         '''
         self._d = {}
         if file is not None:
@@ -881,7 +920,7 @@ class balast(object):
     def __repr__(self):
         return pformat(self._d, indent=2, width=1)
 
-    def add_balast(self,
+    def add_ballast(self,
                    name,
                    comments='None',
                    **kwargs,
@@ -903,7 +942,7 @@ class balast(object):
         water_conductivity: float, optional
             in S, one of water salinity or conductivity must be passed
         piston_displacement: float, str
-            in cm or 'max' for all out
+            positive out and in m or 'max' for all out
         comments: str
             additional comments
         '''
@@ -943,7 +982,21 @@ class balast(object):
                                 **kwargs
                                 ):
         """
-        \delta_m = -V \delta \rho_w - \rho_w \delta V
+        Compute the mass adjustement to perform prior to underwater float deployment
+            \delta_m = -V(new) \rho_w(new) - V(ballast) \rho_w(ballast)
+        Or its approximation:
+            \delta_m = -V \delta \rho_w - \rho_w \delta V
+        
+        !! this method automatically adjust the mass and volume of the underwater float object !!
+
+        Parameters
+        ----------
+        f: cognac.ufloat.core.ufloat
+            float object
+        w: cognac.ufloat.water.waterp
+            water profile
+        verbose: boolean, optional
+            print extra information
         """
         if w is not None:
             z = -self.pressure
@@ -971,16 +1024,16 @@ class balast(object):
         #
         for name, b in self._d.items():
             delta_rho_water = rho_water - b['rho_water']
-            #
-            f.m = b['mass_in_air']*1e-3  # need to convert to kg
+            # reset float mass
+            f.m = b['mass_in_air']*1e-3  # need to convert from g to kg
             if b['piston_displacement'] == 'max':
                 _piston_displacement = f.piston.d_max
             else:
-                _piston_displacement = b['piston_displacement']*1e-2 # cm to m
+                _piston_displacement = b['piston_displacement'] # m
             f.piston.update_d(_piston_displacement)
             f.piston_update_vol()
             # reset volume and temperature reference
-            f.V = b['V'] - f.v # reset volume to match volume infered from balasting
+            f.V = b['V'] - f.v # reset volume to match volume infered from ballasting
             f.temp0 = b['water_temperature']
             #
             Vb = f.volume(p=self.pressure, temp=b['water_temperature'])
@@ -988,14 +1041,16 @@ class balast(object):
             delta_V = V - Vb
             #
             delta_m0 = -b['mass_in_water']*1e-3
-            delta_m1 = V * delta_rho_water + rho_water * delta_V
+            #delta_m1 = V * delta_rho_water + rho_water * delta_V # approximation of more accurate form:
+            delta_m1 = V*rho_water - Vb*b['rho_water']
             delta_m = delta_m0 + delta_m1
-            print('-- According to balast %s, you need add %.1f g'
+            #
+            print('-- According to ballast %s, you need add %.1f g'
                     %(name, delta_m*1e3))
-            print('(if the weight is external to the float, remember this must be the value in water)')
+            print('! If the weight is external to the float, remember this must be the value in water')
             #
             if verbose:
-                print('Independent mass correction (balast -mass_in_water): %.1f [g]'%(delta_m0*1e3))
+                print('Independent mass correction (ballast -mass_in_water): %.1f [g]'%(delta_m0*1e3))
                 print('  Water change mass correction: %.1f [g]'%(delta_m1*1e3))
                 delta_m_t = - gsw.density.alpha(SA, CT, self.pressure) \
                                * (CT-b['CT']) * b['rho_water'] *  V
@@ -1005,8 +1060,10 @@ class balast(object):
                 print('    S contribution: %.1f [g]'%(delta_m_s*1e3))
                 print('  New/old in situ density: %.2f, %.2f  [kg/m^3] '%(rho_water, b['rho_water']))
                 print('    difference: %.1f [kg/m^3]'%(delta_rho_water))
-                print('  New/old float volume: %.2e, %.2e  [m^3] '%(V, b['V']))
+                print('  New/old float volume: %.5e, %.5e  [m^3] '%(V, b['V']))
                 print('    difference: %.1f [cm^3]'%(delta_V*1e6))
+            #
+            return delta_m
 
     def store(self, file):
         _d = dict(self._d)
@@ -1016,7 +1073,7 @@ class balast(object):
                 b[v]=float(b[v])
         with open(file, 'w') as ofile:
             documents = yaml.dump(self._d, ofile)
-        print('Balasting data stored in %s'%file)
+        print('ballasting data stored in %s'%file)
 
     def load(self, file):
         with open(file) as ifile:
@@ -1049,19 +1106,29 @@ def ll_conv(ll):
     elif isinstance(ll,float):
         return '%dX%.6f'%(int(ll),(ll-int(ll))*60.)
 
-def plot_float_density(z, f, waterp, mid=False, ax=None):
+def plot_float_density(z, f, waterp, mid=False, ax=None, v_air=None, show_no_air=False):
     ''' Plot float density with respect to that of water profile
 
     Parameters
     ----------
     z: ndarray
         depth grid
-    f: float object
-    waterp: water profile object
-    mid: boolean, True for curve at piston mid displacement
+    f: cognac.ufloat.core.float
+        underwater float
+    waterp: cognac.ufloat.water.waterp 
+        water profile
+    mid: boolean, 
+        True for curve at piston mid displacement
+    ax: matplotlib.pyplot.axes
+    v_air: float
+        Volume of air at the surface in m^3
     '''
     #
     rho_w, p, temp = waterp.get_rho(z), waterp.get_p(z), waterp.get_temp(z)
+    if v_air is not None:
+        air = (v_air, waterp.get_temp(-1))
+    else:
+        air = None
     #
     if ax is None:
         plt.figure()
@@ -1071,12 +1138,17 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
     #rho_f = f.rho(p=p, temp=temp, v=0.)
     piston = hasattr(f, 'piston')
     if piston:
-        rho_f_vmax = f.rho(p=p, temp=temp, v=f.piston.vol_max)
-        rho_f_vmin = f.rho(p=p, temp=temp, v=f.piston.vol_min)
+        rho_f_vmax = f.rho(p=p, temp=temp, v=f.piston.vol_max, air=air)
+        rho_f_vmin = f.rho(p=p, temp=temp, v=f.piston.vol_min, air=air)
         ax.fill_betweenx(z, rho_f_vmax, rho_w, where=rho_f_vmax>=rho_w,
                          facecolor='red', interpolate=True)
+        if air is not None and show_no_air:
+            rho_f_vmax_no_air = f.rho(p=p, temp=temp, v=f.piston.vol_max)
+            rho_f_vmin_no_air = f.rho(p=p, temp=temp, v=f.piston.vol_min)
     else:
-        rho_f = f.rho(p=p, temp=temp)
+        rho_f = f.rho(p=p, temp=temp, air=air)
+        if air is not None and show_no_air:
+            rho_f_no_air = f.rho(p=p, temp=temp)
     #
     ax.plot(rho_w, z, 'b',  lw=lw,
             label='water')
@@ -1085,13 +1157,21 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
                 label='float v_max', markevery=10)
         ax.plot(rho_f_vmin, z, '--', color='orange',  lw=lw,
                 label='float v_min')
+        if air is not None and show_no_air:
+            ax.plot(rho_f_vmax_no_air, z, '-', color='orange', lw=lw/2,
+                label='float v_max - no air', markevery=10)
+            ax.plot(rho_f_vmin_no_air, z, '--', color='orange',  lw=lw/2,
+                label='float v_min - no air')
     else:
         ax.plot(rho_f, z, '-', color='orange',  lw=lw,
                 label='float')
+        if air is not None and show_no_air:
+            ax.plot(rho_f_no_air, z, '-', color='orange',  lw=lw/2,
+                    label='float - no air')
 
     if piston and mid:
         #rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
-        rho_f_vmid=f.rho(p=p, temp=temp, v=mid)
+        rho_f_vmid=f.rho(p=p, temp=temp, v=mid, air=air)
         ax.plot(rho_f_vmid, z, '--', color='grey',  lw=lw,
                 label='float v_mid')
     ax.legend()
@@ -1101,8 +1181,12 @@ def plot_float_density(z, f, waterp, mid=False, ax=None):
     ax.grid()
     iz = np.argmin(np.abs(z))
     if piston:
-        ax.set_title('extra mass @surface, piston out: %.1f g' \
-                        %( ( (f.V+f.piston.vol_max) * rho_w[iz] - f.m)*1e3 ) )
+        delta_mass_surf = f.m*(rho_w[iz]/rho_f_vmax[iz] - 1.)*1e3
+        title = 'extra mass @surface (piston full out): %.1f g' \
+                        %( delta_mass_surf  ) 
+        if air:
+            title = title+f"\n volume air @surface = {v_air*1e6}cm3"
+        ax.set_title(title)
     #
     y_annotation = ax.get_ylim()[1]-.1*(ax.get_ylim()[1]-ax.get_ylim()[0])
     ax.annotate('',

@@ -232,7 +232,7 @@ class waterp():
         return gsw.conversions.SP_from_SA(SA, p, self.lon, self.lat)
 
     def get_p(self, z):
-        ''' get pressure
+        ''' get pressure in dbar
         '''
         return self.interp(self.p, z)
 

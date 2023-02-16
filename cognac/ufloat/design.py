@@ -559,7 +559,11 @@ def line(f, c, l, **kwargs):
 
 # ------------------------------ design graph ----------------------------------
 
-from graphviz import Graph
+try:
+    from graphviz import Graph
+except:
+    import warnings
+    warnings.warn("graphviz library not installed")
 
 _part_colors = {'deployment': 'orange',
                 'hull': 'cadetblue',
