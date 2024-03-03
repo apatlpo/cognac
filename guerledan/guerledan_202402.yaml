@@ -1,0 +1,108 @@
+# ------------------------------- campaign info --------------------------------------
+campaign:
+  name: guerledan_202402
+  # path to general directory:
+  path: /Users/aponte/Current_Projects/ensta/guerledan/202402/
+  # path to raw data directory:
+  path_raw: data_raw/ 
+  # path to clean data  directory:
+  path_processed: data_clean/
+  # geographical and temporal bounds
+  lon:
+    - 3.
+    - 3.2
+  lat:
+    - 48.19
+    - 48.2
+  start: "2024-02-05 05:00:00"
+  end: "2024-02-09 10:00:00"
+  # bathymetric data and configuration
+  bathy:
+    path: /Users/aponte/Current_Projects/ensta/guerledan/Guerledan_Feb19_0.5m.tiff
+    label: guerledan_east
+    levels: !!python/list [2000, 1500, 1000, 500, 100, 0]
+  coastline: h
+# ------------------------------- general deployments / campaign parts ----------------------------------
+#
+# Deployments can also be used to mark positions or isolated events
+#
+deployments:
+  #underway:
+  #    start: "2022-09-21 06:30:00"
+  #    end: "2022-09-25 15:10:00"
+  #    meta:
+  #      platforms: europe drix
+  #      color: black
+# ------------------------------- platform info --------------------------------------
+#
+# Platforms data.
+# Each platform may be described by: deployments, sensors, meta data
+# Each sensor may be described by: deployments, meta data
+#
+platforms:
+#
+#
+  seabot4:
+    deployments:
+        cast0:
+          - 2024/02/05 20:06:44
+          - 2024/02/05 20:19:00
+          #- 2024/02/05 20:50:17
+          - meta:
+              data_dir: test_guerledan_2024_02_05/seabot4/
+        isoT0:
+          - 2024/02/06 17:30:25
+          - 2024/02/07 08:32:00
+          - meta:
+              data_dir: test_guerledan_2024_02_07/night/seabot4/
+              iso_start: 2024/02/06 17:37:40
+              iso_end: 2024/02/07 08:30:00
+        isoT1:
+          - 2024/02/07 15:50:45 48.1963792 -3.0244159
+          - 2024/02/08 08:33:00 48.1961987 -3.0268654
+          - meta:
+              data_dir: test_guerledan_2024_02_08/night/seabot4/
+              iso_start: 2024/02/07 15:54:00
+              iso_end: 2024/02/08 08:30:00
+        isoT2:
+          - 2024/02/08 21:12:12 48.1965077 -3.0249368
+          - 2024/02/09 08:06:30 48.1979292 -3.0196694
+          - meta:
+              data_dir: test_guerledan_2024_02_09/night/seabot4/
+              iso_start: 2024/02/08 21:20:00
+              iso_end: 2024/02/09 08:00:00
+    meta:
+      color: navy
+#
+#
+  seabot5:
+    deployments:
+        cast0:
+          #- 2024/02/05 20:06:56
+          - 2024/02/05 20:25:40
+          - 2024/02/05 20:50:09
+          - meta:
+              data_dir: test_guerledan_2024_02_05/seabot5/
+        isoT0:
+          - 2024/02/06 17:26:32 
+          - 2024/02/07 08:32:00
+          - meta:
+              data_dir: test_guerledan_2024_02_07/night/seabot5/
+              iso_start: 2024/02/06 17:36:50
+              iso_end: 2024/02/07 08:30:00
+        isoT1:
+          - 2024/02/07 15:50:40 48.1973208 -3.0209315 
+          - 2024/02/08 08:33:00 48.1962292 -3.0270939
+          - meta:
+              data_dir: test_guerledan_2024_02_08/night/seabot5/
+              iso_start: 2024/02/07 15:54:00
+              iso_end: 2024/02/08 08:30:00
+        isoT2:
+          - 2024/02/08 21:12:18 48.1964758 -3.0248178
+          - 2024/02/09 08:04:00 48.1977053 -3.0196383
+          - meta:
+              data_dir: test_guerledan_2024_02_09/night/seabot5/
+              iso_start: 2024/02/08 21:20:00
+              iso_end: 2024/02/09 08:00:00
+    meta:
+      color: crimson
