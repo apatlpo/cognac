@@ -18,7 +18,7 @@ campaign:
   end: "2024-02-09 10:00:00"
   # bathymetric data and configuration
   bathy:
-    path: /Users/aponte/Current_Projects/ensta/guerledan/Guerledan_Feb19_0.5m.tiff
+    path: /Users/aponte/Current_Projects/ensta/guerledan/data_common/Guerledan_Feb19_0.5m.tiff
     label: guerledan_east
     levels: !!python/list [2000, 1500, 1000, 500, 100, 0]
   coastline: h

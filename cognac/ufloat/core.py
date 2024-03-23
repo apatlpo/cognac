@@ -20,6 +20,7 @@ g = 9.81  # m/s^2
 watth = 1e-6 / 3.6
 dbar2Pa = 1.0e4
 cm3 = 1e-6  # cm^3 to m^3 conversion
+rho0 = 1030
 
 # -------------------------- float object with dynamics -------------------------
 
@@ -57,13 +58,13 @@ class autonomous_float:
                 "alpha": 6.98e-5,
                 "temp0": 20.0,
                 "a": 1.0,
-                "c0": 0.0,
+                "drag_model": "quadratic",
                 "c1": 1.0,
             }
             params["m"] = 11.630
             # avec 16 piles : 11.630, avec 32 piles : 13.315
             # compressibility from Paul Troadec's report (p39)
-        elif model.lower() == "ensta":
+        elif model.lower() == "seabot_v0":
             params = {
                 "r": 0.06,
                 "L": 0.5,
@@ -71,10 +72,28 @@ class autonomous_float:
                 "alpha": 0.0,
                 "temp0": 0.0,
                 "a": 1.0,
-                "c0": 0.0,
+                "drag_model": "quadratic",
                 "c1": 1.0,
             }
             params["m"] = 9.045
+        elif model.lower() == "seabot":
+            m = 12 # kg
+            params = {
+                "r": 0.06,
+                "L": 1.,
+                "gamma": 3.5e-06,
+                "alpha": 0.0,
+                "temp0": 0.0,
+                "a": 1.0,
+                "drag_model": "polynomial",
+                "drag_order": 5,
+                "drag_c0": .4588/m,
+                "drag_c1": .0388/m,
+                "drag_c2": 29.224/m,
+                "drag_c3": -1.0928/m,
+                "drag_c4": -119.9/m,
+            }
+            params["m"] = m
         elif model.lower() == "minion":
             params = {
                 "r": 0.09 / 2.0,
@@ -83,53 +102,80 @@ class autonomous_float:
                 "alpha": 12e-6,
                 "temp0": 0.0,
                 "a": 1.0,
-                "c0": 0.0,
-                "c1": 1.0,
+                "drag_model": "quadratic",
+                "drag_c1": 1.0,
             }
         #
         params.update(kwargs)
-        for key, val in params.items():
-            setattr(self, key, val)
         # compute the volume of the float:
         if "V" not in params:
-            self.V = np.pi * self.r**2 * self.L
+            if "m" in params:
+                # derive volume from mass rather that from geometrical dimensions
+                V = params["m"]/rho0
+            else:
+                V = np.pi * params["r"]**2 * params["L"]
+            params["V"] = V
         if "m" not in params:
-            self.m = self.V * 1030
+            m = params["V"] * rho0
             print(
                 "infer mass from volume with rho=1030 kg/m3, m = {:.3f} kg".format(
-                    self.m
+                    m
                 )
             )
+            params["m"] = m
 
         # auxiliary parameters
-        self.rho_cte = self.m / self.V  # kg.m^-3
-        self.gammaV = self.gamma * self.V  # m^2
+        params["rho_cte"] = params["m"] / params["V"]  # kg.m^-3
+        params["gammaV"] = params["gamma"] * params["V"]  # m^2
+        # fill in drag parameters if need be:
+        if params["drag_model"] == "polynomial":
+            for i in range(params["drag_order"]):
+                if f"drag_c{i}" not in params:
+                    params[f"drag_c{i}"] = 0.
+
+        self.params = params
+        self._set_params_as_attrs() # will have to be turned off eventually
 
     def __repr__(self):
         strout = "Float parameters: \n"
-        strout += "  L     = %.2f m      - float length\n" % (self.L)
-        strout += "  r     = %.2f m      - float radius\n" % (self.r)
-        strout += "  m     = %.2f kg     - float mass\n" % (self.m)
-        strout += "  V     = %.2e cm^3   - float volume\n" % (self.V / cm3)
+        strout += "  L     = %.2f m      - float length\n" % (self["L"])
+        strout += "  r     = %.2f m      - float radius\n" % (self["r"])
+        strout += "  m     = %.2f kg     - float mass\n" % (self["m"])
+        strout += "  V     = %.2e cm^3   - float volume\n" % (self["V"] / cm3)
         strout += "  rho_cte = m/V = %.2e kg.cm^3   - float baseline density\n" % (
-            self.rho_cte / cm3
+            self["rho_cte"] / cm3
         )
-        strout += "  gamma = %.2e /dbar  - mechanical compressibility\n" % (self.gamma)
+        strout += "  gamma = %.2e /dbar  - mechanical compressibility\n" % (self["gamma"])
         strout += "  gamma x V = %.2e cm^3/dbar  - normalized compressibility\n" % (
-            self.gamma * self.V / cm3
+            self["gamma"] * self["V"] / cm3
         )
-        strout += "  alpha = %.2e /degC  - thermal compressibility\n" % (self.alpha)
+        strout += "  alpha = %.2e /degC  - thermal compressibility\n" % (self["alpha"])
         strout += (
             "  alpha x V = %.2e cm^3/degC  - normalized thermal compressibility\n"
-            % (self.alpha * self.V / cm3)
+            % (self["alpha"] * self["V"] / cm3)
         )
-        strout += "  temp0 = %.2e  degC  - reference temperature\n" % (self.temp0)
-        strout += "  a = %.2e  (no dimension)  - float added mass\n" % (self.a)
-        strout += "  c0 = %.2e  (no dimension)  - float drag parameter 0\n" % (self.c0)
-        strout += "  c1 = %.2e  (no dimension)  - float drag parameter 1\n" % (self.c1)
+        strout += "  temp0 = %.2e  degC  - reference temperature\n" % (self["temp0"])
+        strout += "  a = %.2e  (no dimension)  - float added mass\n" % (self["a"])
+        strout += "  drag_model = %s  0\n" % (self["drag_model"])
+        if self["drag_model"]=="quadratic":
+            strout += "  drag_c1 = %.2e  (no dimension)  - float drag parameter\n" % (self["drag_c1"])
+        elif self["drag_model"]=="polynomial":
+            for i in range(self["drag_order"]):
+                _c = self[f"drag_c{i}"]
+                strout += f"  drag_c{i} = {_c:.2e}  (??)  - float drag parameter\n"
+        elif self["drag_model"]=="internal_wave":
+            strout += "  drag_c0 = %.2e  (??)  - float drag parameter\n" % (self["drag_c0"])
         if hasattr(self, "piston"):
             strout += str(self.piston)
         return strout
+    
+    def __getitem__(self, key):
+        """ to be implemented to access parameters """
+        return self.params[key]
+    
+    def _set_params_as_attrs(self):
+        for key, val in self.params.items():
+            setattr(self, key, val)
 
     def rho(
         self,
@@ -161,7 +207,7 @@ class autonomous_float:
         air: tuple
             (v_air, t_air) volume of air (m^3) and temperature (degC) at the surface
         """
-        V = self.V
+        V = self["V"]
         #
         if v is None:
             if hasattr(self, "v"):
@@ -171,13 +217,13 @@ class autonomous_float:
         V += v
         #
         if m is None:
-            m = self.m
+            m = self["m"]
         #
         if p is None:
-            p = waterp.now(z=z)["pressure"]
+            p = waterp.at(z=z)["pressure"]
         if temp is None:
             # assumes thermal equilibrium
-            temp = waterp.now(z=z)["temperature"]
+            temp = waterp.at(z=z)["temperature"]
         #
         if air is not None:
             p_surf, v_surf, temp_surf = 10, air[0], air[1]
@@ -199,13 +245,13 @@ class autonomous_float:
             self._m_air = m_air
             V += v_air
         #
-        V += self.V * (-self.gamma * p + self.alpha * (temp - self.temp0))
+        V += self["V"] * (-self.gamma * p + self.alpha * (temp - self.temp0))
         self._volume = V  # for log purposes
         return m / V
 
     def volume(self, **kwargs):
         """Returns float volume (V+v)"""
-        return self.m / self.rho(**kwargs)
+        return self["m"] / self.rho(**kwargs)
 
     def volume4equilibrium(self, p_eq, temp_eq, rho_eq):
         """Find volume that needs to be added in order to be at equilibrium
@@ -217,11 +263,11 @@ class autonomous_float:
 
     def z4equilibrium(self, waterp, z0=-10):
         """Find depth where float is at equilibrium"""
-        _f = lambda z: waterp.now(z=z)["rho"] - self.rho(z=z, waterp=waterp)
+        _f = lambda z: waterp.at(z=z)["rho"] - self.rho(z=z, waterp=waterp)
         z = fsolve(_f, z0)[0]
         return z
 
-    def adjust_m(self, p_eq, temp_eq, rho_eq, offset=0.0):
+    def adjust_m(self, p_eq, temp_eq, rho_eq, piston=True, offset=0.0):
         """Find mass that needs to be added in order to be at equilibrium
         prescribed pressure, temperature, density
 
@@ -238,15 +284,20 @@ class autonomous_float:
 
         """
 
+        v = 0.
+        if piston:
+            v = self.piston.vol
         def _f(m):
-            return rho_eq - self.rho(p=p_eq, temp=temp_eq, m=m)
+            return rho_eq - self.rho(p=p_eq, temp=temp_eq, m=m, v=v)
 
-        m0 = self.m
-        self.m = fsolve(_f, self.m)[0]
-        self.m += offset * 1e-3
-        self.rho_cte = self.m / self.V  # kg.m^-3
+        m0 = self["m"]
+        m = fsolve(_f, self["m"])[0]
+        m += offset * 1e-3
+        self.params["m"] = m
+        self.params["rho_cte"] = m / self["V"]  # kg.m^-3
+        self._set_params_as_attrs()
         print(
-            "%.1f g " % ((self.m - m0) * 1.0e3)
+            "%.1f g " % ((m - m0) * 1.0e3)
             + " were added to the float in order to be at equilibrium"
             + " at %.0f dbar \n" % (p_eq)
         )
@@ -267,11 +318,11 @@ class autonomous_float:
                 gamma: float, np.array
                     Float compressibility in 1/dbar
         """
-        gamma = self.gamma
+        gamma = self["gamma"]
         if v_air is not None:
             assert p is not None, "Need to pass pressure if v_air is provided"
             p_atmo = 10  # dbar
-            gamma += v_air / self.V * p_atmo / (p + p_atmo) ** 2
+            gamma += v_air / self["V"] * p_atmo / (p + p_atmo) ** 2
         return gamma
 
     def init_piston(self, **kwargs):
@@ -303,7 +354,7 @@ class autonomous_float:
         print("Piston reset for equilibrium : vol=%.1e cm^3  " % (vol / cm3))
         return vol
 
-    def compute_force(self, z, w, water, Lv, v=None, sum=True):
+    def compute_force(self, z, w, water, v=None, sum=True, **kwargs):
         """Compute the vertical force exterted on the float
         We assume thermal equilibrium
         Drag is quadratic
@@ -325,18 +376,18 @@ class autonomous_float:
 
         """
         # gravity
-        f_b = -self.m * g
+        f_b = -self["m"] * g
         # upward buoyancy
         if not isinstance(water, dict):
-            water = water.now(z=z)
+            water = water.at(z=z)
         p, temp_w, rho_w = water["pressure"], water["temperature"], water["rho"]
         #
         rho_f = self.rho(p=p, temp=temp_w, v=v)
-        f_b += self.m * rho_w / rho_f * g
+        f_b += self["m"] * rho_w / rho_f * g
         # drag
-        f_d = self.get_drag_force(w, water["detadt"], Lv)
+        f_d = self.get_drag_force(w, water["detadt"], **kwargs)
         # water accelerative terms, ignoring nonlinear accelerative terms including w_r dw/dz
-        f_w = self.m * (1 + self.a) * water["d2etadt2"]
+        f_w = self["m"] * (1 + self.a) * water["d2etadt2"]
         #
         f_total = f_b + f_d + f_w
         if sum:
@@ -344,75 +395,86 @@ class autonomous_float:
         else:
             return f_total, f_b, f_d, f_w
 
-    def get_cd(self, w, w_water, Lv, N2=None):
+    def get_cd(self, w, w_water, Lv=None, N2=None):
         """return drag coefficient such that the drag force is -cd*(w-w_water)"""
-        cd = 0.5 * 0.82 * self.c1 / Lv * np.abs(w - w_water)
-        # long cylinder: cd = 0.82
-        # https://en.wikipedia.org/wiki/Drag_coefficient
-        # we need c1 = 1 and Lv = L
-        if self.c0 != 0:
+        model = self["drag_model"]
+        if model=="quadratic":
+            assert Lv is not None, "Lv must be provided with quadratic drag"
+            cd = 0.5 * 0.82 * self["drag_c1"] / Lv * np.abs(w - w_water)
+            # long cylinder: cd = 0.82
+            # https://en.wikipedia.org/wiki/Drag_coefficient
+            # we need c1 = 1 and Lv = L
+        elif model=="polynomial":
+            u = w - w_water
+            cd = 0
+            for i in range(self["drag_order"]):
+                cd += self[f"drag_c{i}"]* u**i
+        elif model=="internal_wave":
             assert N2 is not None, "pass N2 if c0 is not 0 (iwave drag)"
             if N2 > 0:
                 N = np.sqrt(N2)
             else:
                 N = 0.0
-            cd += N * self.c0
+            cd += N * self["drag_c0"]
         return cd
 
     def get_drag_force(self, w, w_water, *args, **kwargs):
         cd = self.get_cd(w, w_water, *args, **kwargs)
-        f_d = -self.m * cd * (w - w_water)
+        f_d = -self["m"] * cd * (w - w_water)
         # m = rho x V = rho x A x L
         # cd = c1/Lv x U
         # F = rho x A x L x c1/Lv x U^2
+        #   = c1 x m /Lv x U^2
         #   ~ c1 x rho x A x U^2
+        # if the drag force is given in Newtons, for instance: f(u) = C x u^3
+        # then one need to enforce: c1 x m /Lv x  = 
         return f_d
 
-    def compute_dforce(self, z, w, waterp, Lv):
+    def compute_dforce(self, z, w, waterp, **kwargs):
         """Compute gradients of the vertical force exterted on the float"""
         df1 = (
-            self.compute_force(z + 5.0e-2, w, waterp, Lv, v=self.v)
-            - self.compute_force(z - 5.0e-2, 0.0, waterp, Lv, v=self.v)
+            self.compute_force(z + 5.0e-2, w, waterp, v=self.v, **kwargs)
+            - self.compute_force(z - 5.0e-2, 0.0, waterp, v=self.v, **kwargs)
         ) / 1.0e-1
         df2 = (
-            self.compute_force(z, w + 5.0e-3, waterp, Lv, v=self.v)
-            - self.compute_force(z, w - 5.0e-3, waterp, Lv, v=self.v)
+            self.compute_force(z, w + 5.0e-3, waterp, v=self.v, **kwargs)
+            - self.compute_force(z, w - 5.0e-3, waterp, v=self.v, **kwargs)
         ) / 1.0e-2
         df3 = (
-            self.compute_force(z, w, waterp, Lv, v=self.v + 5.0e-5)
-            - self.compute_force(z, w, waterp, Lv, v=self.v - 5.0e-5)
+            self.compute_force(z, w, waterp, v=self.v + 5.0e-5, **kwargs)
+            - self.compute_force(z, w, waterp, v=self.v - 5.0e-5, **kwargs)
         ) / 1.0e-4
         return df1, df2, df3
 
-    def compute_bounds(self, waterp, zmin, zmax=0.0):
+    def compute_bounds(self, waterp, zmin, zmax=0.0, **kwargs):
         """Compute approximate bounds on velocity and acceleration"""
         z = zmax
         if hasattr(self, "piston"):
             v = self.piston.vol_max
         else:
             v = None
-        fmax = self.compute_force(z, 0.0, waterp, self.L, v=v)  # upward force
+        fmax = self.compute_force(z, 0.0, waterp, v=v, **kwargs)  # upward force
         #
         z = zmin
         if hasattr(self, "piston"):
             v = self.piston.vol_min
         else:
             v = None
-        fmin = self.compute_force(z, 0.0, waterp, self.L, v=v)  # downward force
+        fmin = self.compute_force(z, 0.0, waterp, v=v, **kwargs)  # downward force
         #
         afmax = np.amax((np.abs(fmax), np.abs(fmin)))
-        wmax = np.sqrt(afmax * self.m * 2 * self.L / self.c1)
+        wmax = np.sqrt(afmax * self["m"] * 2 * self.L / self.c1)
         print(
             "Acceleration and velocity bounds (zmin=%.0fm,zmax=%.0fm):" % (zmin, zmax)
         )
         print(
             "fmax/m=%.1e m^2/s, fmin/m= %.1e m^2/s, wmax= %.1f cm/s"
-            % (fmax / self.m, fmin / self.m, wmax * 100.0)
+            % (fmax / self["m"], fmin / self["m"], wmax * 100.0)
         )
         print("For accelerations, equivalent speed reached in 1min:")
         print(
             "  fmax %.1e cm/s, fmin/m= %.1e cm/s"
-            % (fmax / self.m * 60.0 * 100.0, fmin / self.m * 60.0 * 100.0)
+            % (fmax / self["m"] * 60.0 * 100.0, fmin / self["m"] * 60.0 * 100.0)
         )
         #
         # if hasattr(self,'piston'):
@@ -420,10 +482,10 @@ class autonomous_float:
         #    p, tempw = waterp.get_p(z), waterp.get_temp(z)
         #    rhow = self.rho(p=p,temp=tempw,v=self.piston.vol_min)
         #    rhof = self.rho(p=p,temp=tempw,v=self.piston.vol_min+dv)
-        #    df = self.m*(-1.+rhow/rhof)*g
-        #    print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self.m))
+        #    df = self["m"]*(-1.+rhow/rhof)*g
+        #    print('Acceleration after an elementary piston displacement: %.1e m^2/s' %(df[0]/self["m"]))
         #    print('  corresponding speed and displacement after 1 min: %.1e m/s, %.1e m \n' \
-        #          %(df[0]/self.m*60,df[0]/self.m*60**2/2.))
+        #          %(df[0]/self["m"]*60,df[0]/self["m"]*60**2/2.))
         return fmax, fmin, afmax, wmax
 
     def get_drag_velocity(self, dm, Lv=None):
@@ -439,7 +501,7 @@ class autonomous_float:
                 Lv = self.Lv
             else:
                 Lv = self.L
-        return np.sqrt(g * dm / self.m * 2 * Lv / self.c1)
+        return np.sqrt(g * dm / self["m"] * 2 * Lv / self.c1)
 
     def get_transfer_functions(
         self,
@@ -449,13 +511,33 @@ class autonomous_float:
         omega_num=100,
         v_air=0.0,
         cd=None,
-        Lv=None,
+        cd_kwargs={},
         Ap=0.0,
     ):
-        """get transfer function with respect to moving isopycnal and piston"""
+        """get transfer function with respect to moving isopycnal and piston
+        
+        Parameters
+        ----------
+        waterp: ufloat.water.waterp
+            Water profile
+        w: float
+            typical vertical velocity
+        omega: tuple, array-like
+            min/max frequencies in Hz
+        omega_num: int, optional
+            size of frequency vector
+        v_air: float, optional
+            volume of air in m3
+        cd: float, optional
+            drag coefficient
+        Lv: float, optional
+            length scale used for the computation of the drag coefficient, see get_cd
+        Ap: np.array?
+            piston dispalcements ... to be implemented really
+        """
 
         # massage water data
-        water = waterp.now(extra=True)
+        water = waterp.at(extra=True)
         p = water["pressure"]
         z = water["z"]
         rho = water["rho"]
@@ -481,10 +563,12 @@ class autonomous_float:
         L2b = g * self.alpha * (dt_dz + Gamma)
 
         if cd is None:
-            assert Lv is not None, "need to pass Lv if cd is None"
-            cd = self.get_cd(w, 0.0, Lv)
+            cd = self.get_cd(w, 0.0, **cd_kwargs)
 
-        omega_hz = np.logspace(*omega, num=omega_num)  # Hz = 1/s
+        if isinstance(omega, tuple):
+            omega_hz = np.logspace(*omega, num=omega_num)  # Hz = 1/s
+        else:
+            omega_hz = omega
         omega = omega_hz * 2 * np.pi  # rad/s
 
         ds = xr.Dataset(
@@ -499,7 +583,7 @@ class autonomous_float:
 
         _denum = ds.M2 - (1 + self.a) * ds._omega**2 - 1j * ds._omega * cd
         ds["H_w^r"] = (ds.M2 - ds.N2 + ds.L2) / _denum
-        ds["H_p^r"] = -g * Ap / self.V / _denum
+        ds["H_p^r"] = -g * Ap / self["V"] / _denum
 
         ds["H_w^f"] = 1 - ds["H_w^r"]
 
@@ -517,7 +601,6 @@ class autonomous_float:
         w=None,
         v=None,
         t0=0.0,
-        Lv=None,
         ctrl=None,
         z_target=None,
         kalman=None,
@@ -547,8 +630,6 @@ class autonomous_float:
             Initial volume adjustement (total volume is V+v) [m^3]
         t0: float
             Initial time [t]
-        Lv: float
-            Drag length scale [m]
         z_target: function
             Target trajectory as a function of time [m]
         w_target: function
@@ -565,6 +646,9 @@ class autonomous_float:
             Time interval between log storage
         p_float: float [Pa]
             Internal float pressure in Pa (energy conssumption)
+        restart:
+        verbose:
+        **kwargs: passed to compute_force
         """
         if restart:
             t0 = self._t
@@ -589,10 +673,10 @@ class autonomous_float:
             self.w = 0.0
         self.dwdt = 0.0
         #
-        if Lv is not None:
-            self.Lv = Lv
-        else:
-            self.Lv = self.L
+        #if Lv is not None:
+        #    self.Lv = Lv
+        #else:
+        #    self.Lv = self.L
         # log init
         logs = ["state", "dynamics", "water"]
         # _log = {'state':['z','w','v','dwdt', 'volume',
@@ -647,9 +731,10 @@ class autonomous_float:
                 _log_now = False
             # get vertical force on float
             waterp.update_eta(eta, t)  # update isopycnal displacement
-            water = waterp.now(z=self.z)
+            water = waterp.at(z=self.z)
             _force, _force_b, _force_d, _force_w = self.compute_force(
-                self.z, self.w, water, self.Lv, v=self.v, sum=False
+                self.z, self.w, water, v=self.v, sum=False, 
+                **kwargs,
             )
             #
             # update kalman state estimation
@@ -690,15 +775,15 @@ class autonomous_float:
             #
             # log data
             if _log_now:
-                self.log["state"].store(
+                self.log["state"].log(
                     time=t,
                     z=self.z,
                     w=self.w,
                     v=self.v,
                     volume=self._volume,
-                    dwdt=_force / (1 + self.a) / self.m,
+                    dwdt=_force / (1 + self.a) / self["m"],
                 )
-                self.log["water"].store(
+                self.log["water"].log(
                     time=t,
                     temperature=water["temperature"],
                     salinity=water["salinity"],
@@ -707,24 +792,24 @@ class autonomous_float:
                     detadt=water["detadt"],
                     d2etadt2=water["d2etadt2"],
                 )
-                self.log["dynamics"].store(
+                self.log["dynamics"].log(
                     time=t,
-                    acceleration=_force / (1 + self.a) / self.m,
-                    buoyancy=_force_b / (1 + self.a) / self.m,
-                    drag=_force_d / (1 + self.a) / self.m,
-                    water=_force_w / (1 + self.a) / self.m,
+                    acceleration=_force / (1 + self.a) / self["m"],
+                    buoyancy=_force_b / (1 + self.a) / self["m"],
+                    drag=_force_d / (1 + self.a) / self["m"],
+                    water=_force_w / (1 + self.a) / self["m"],
                 )
                 if ctrl:
                     _info = {"time": t, "u": u, "work": self.piston_work}
-                    self.log["piston"].store(**_info)
+                    self.log["piston"].log(**_info)
                 if kalman:
                     #
-                    _dwdt = _force / (1 + self.a) / self.m
+                    _dwdt = _force / (1 + self.a) / self["m"]
                     _klog = self.kalman.get_log(t, self.v, _dwdt)
-                    self.log["kalman"].store(**_klog)
+                    self.log["kalman"].log(**_klog)
             #
             # update variables
-            self.dwdt = _force / (1 + self.a) / self.m
+            self.dwdt = _force / (1 + self.a) / self["m"]
             self.w += dt_step * self.dwdt
             self.z += dt_step * self.w
             self.z = np.amin((self.z, 0.0))
@@ -763,7 +848,7 @@ class autonomous_float:
                         / np.pi,  # Set the limit speed : 3cm/s assesed by simulation
                         "delta": 0.11,  # length scale that defines the zone of influence around the target depth, assesed by simulation
                         "gamma": self.gamma,  # mechanical compressibility [1/dbar]
-                        "m": self.m,
+                        "m": self["m"],
                         "a": self.a,
                         "Lv": self.Lv,
                         "c1": self.c1,
@@ -787,7 +872,7 @@ class autonomous_float:
             ctrl_default.update(ctrl)
             self.ctrl = control(**ctrl_default)
 
-    def get_control(self, z_target, t, waterp, log):
+    def get_control(self, z_target, t, waterp, log, **kwargs):
         _c = self.ctrl
         if _c.mode == "sliding":
             u = _c.get_u_sliding(z_target, t, self.z, self.w, self)
@@ -799,7 +884,7 @@ class autonomous_float:
             # u = np.sign(d_pid - self.piston.d) * _c.dvdt
             u = np.sign(d_pid) * _c.dvdt
         elif _c.mode == "feedback1":
-            _Ve = self.compute_force(self.z, 0.0, waterp, _c.Lv, v=0.0, sum=True) / (
+            _Ve = self.compute_force(self.z, 0.0, waterp, v=0.0, sum=True, **kwargs) / (
                 g * self.rho_cte
             )
             _Ve += _c.perturbation  # sensitivity tests
@@ -846,7 +931,7 @@ class autonomous_float:
     def init_kalman(self, kalman, w, z, verbose):
         _params = {
             "version": "v0",
-            "m": self.m,
+            "m": self["m"],
             "a": self.a,
             "rho_cte": self.rho_cte,
             "c1": self.c1,
@@ -916,47 +1001,41 @@ class piston:
             work supplied
 
         """
-        params = dict()
+        params = {
+            "phi": 0.0,
+            "d": 0.0,
+            "vol": 0.0,
+            "omega": 0.0,
+            "phi_min": 0.0,
+            "d_min": 0.0,
+            "vol_min": 0.0,
+        }
         if model is None:
             model = "custom"
         if model.lower() == "ifremer":
             # default parameters: IFREMER float
-            params = {
-                "r": 0.0195 / 2,
-                "phi": 0.0,
-                "d": 0.0,
-                "vol": 0.0,
-                "omega": 0.0,
-                "lead": 1,
-                "phi_min": 0.0,
-                "d_min": 0.0,
-                "d_max": 0.09,
-                "vol_min": 0.0,
-                "translation_max": 0.01,  # m/s !!! wild guess
-                "translation_min": 0.001,  # m/s !!! wild guess
-                "efficiency": 0.1,
-                "d_increment": 0.12 * 4.0 / 5600.0,
-                "d_offset": 0.03,  # big piston offset
-            }
-        elif model.lower() == "ensta":
+            params.update(
+                r=0.0195 / 2,
+                lead= 1,
+                d_max= 0.09,
+                translation_max= 0.01,  # m/s !!! wild guess
+                translation_min= 0.001,  # m/s !!! wild guess
+                efficiency= 0.1,
+                d_increment= 0.12 * 4.0 / 5600.0,
+                d_offset= 0.03,  # big piston offset
+            )
+        elif model.lower() == "seabot_v0":
             # default parameters: ENSTA float
-            params = {
-                "r": 0.025,
-                "phi": 0.0,
-                "d": 0.0,
-                "vol": 0.0,
-                "omega": 0.0,
-                "lead": 0.00175,
-                "tick_per_turn": 48,
-                "phi_min": 0.0,
-                "d_min": 0.0,
-                "d_max": 0.07,
-                "vol_max": 1.718e-4,
-                "vol_min": 0.0,
-                "omega_max": 60.0 / 48 * 2.0 * np.pi,
-                "efficiency": 0.1,
-                "d_offset": 0.0,
-            }
+            params.update(
+                r=0.025,
+                lead= 0.00175,
+                tick_per_turn= 48,
+                d_max= 0.07,
+                vol_max= 1.718e-4,
+                omega_max= 60.0 / 48 * 2.0 * np.pi,
+                efficiency= 0.1,
+                d_offset= 0.0,
+            )
             self.d_increment = params["lead"] / params["tick_per_turn"]
 
             # translation_max = d_increment*(225 pulses par seconde)  (vitesse de translation max en m/s)
@@ -970,12 +1049,25 @@ class piston:
             # verifier si importance lead et angles lors de la regulation, ecraser parametres redondants
             # vol_max = 0.090*np.pi*(0.0195/2)**2+0.030*np.pi*(0.080/2)**2 = 1.777e-4
 
-        # 48 encoches
-        # vitesse max de 60 encoches par seconde
+            # 48 encoches
+            # vitesse max de 60 encoches par seconde
+        elif model.lower() == "seabot":
+            # default parameters: ENSTA float
+            params.update(
+                r= 4.5e-2*0.5,
+                lead= 1e-3, # m/turn
+                tick_per_turn= 8192,
+                d_max= 11e-2, # m
+                omega_max= 38.0 / 60 * 2.0 * np.pi,
+                efficiency= 0.1,
+            )
+            self.d_increment = params["lead"] / params["tick_per_turn"]
+
         #
         params.update(kwargs)
         for key, val in params.items():
             setattr(self, key, val)
+        self.A = np.pi * self.r**2 # piston area
         # assumes here volumes are given
         # if 'd_min' not in kwargs:
         #    self.d_min = self.vol2d(self.vol_min)
@@ -1012,7 +1104,7 @@ class piston:
         )
         # not sure if vol_increment is still used
         self.vol_increment = (
-            self.d_increment * np.pi * self.r**2
+            self.d_increment * self.A
         )  # *self.increment_error
         self.tick_to_volume = self.vol_increment
 
@@ -1137,13 +1229,13 @@ class piston:
         return self.phi_min + (d - self.d_min) * 2.0 * np.pi / self.lead
 
     def d2vol(self, d):
-        return self.vol_min + (d - self.d_min) * np.pi * self.r**2
+        return self.vol_min + (d - self.d_min) * self.A
 
     def d2vol_no_volmin(self, d):
-        return self.vol_max + (d - self.d_max) * np.pi * self.r**2
+        return self.vol_max + (d - self.d_max) * self.A
 
     def vol2d(self, vol):
-        return self.d_min + (vol - self.vol_min) / (np.pi * self.r**2)
+        return self.d_min + (vol - self.vol_min) / self.A
 
     def vol2phi(self, vol):
         return self.d2phi(self.vol2d(vol))
@@ -1376,7 +1468,14 @@ def ll_conv(ll):
         return "%dX%.6f" % (int(ll), (ll - int(ll)) * 60.0)
 
 
-def plot_float_density(z, f, waterp, mid=False, ax=None, v_air=None, show_no_air=False):
+def plot_float_density(
+        z, f, waterp, 
+        mid=False, 
+        ax=None, 
+        v_air=None, 
+        show_no_air=False,
+        xlim=None,
+    ):
     """Plot float density with respect to that of water profile
 
     Parameters
@@ -1394,16 +1493,18 @@ def plot_float_density(z, f, waterp, mid=False, ax=None, v_air=None, show_no_air
         Volume of air at the surface in m^3
     """
     #
-    w = waterp.now(z=z)
+    w = waterp.at(z=z)
     rho_w, p, temp = w["rho"], w["pressure"], w["temperature"]
     if v_air is not None:
-        air = (v_air, waterp.now(z=-1.0)["temperature"])
+        air = (v_air, waterp.at(z=-1.0)["temperature"])
     else:
         air = None
     #
     if ax is None:
         plt.figure()
         ax = plt.subplot(111)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
     lw = 4
     #
     # rho_f = f.rho(p=p, temp=temp, v=0.)
@@ -1461,7 +1562,11 @@ def plot_float_density(z, f, waterp, mid=False, ax=None, v_air=None, show_no_air
     if piston and mid:
         # rho_f_vmid=f.rho(p=p, temp=temp, v=(f.piston.vol_max+f.piston.vol_min)*.5)
         rho_f_vmid = f.rho(p=p, temp=temp, v=mid, air=air)
-        ax.plot(rho_f_vmid, z, "--", color="grey", lw=lw, label="float v_mid")
+        ax.plot(rho_f_vmid, z, "-", color="grey", lw=lw, label="float v_mid")
+        if air is not None and show_no_air:
+            rho_f_vmid_no_air = f.rho(p=p, temp=temp, v=mid)
+            ax.plot(rho_f_vmid_no_air, z, "--", color="grey", lw=lw/2, label="float v_mid")
+
     ax.legend()
     ax.set_xlabel("[kg/m^3]")
     ax.set_ylim((np.amin(z), 0.0))

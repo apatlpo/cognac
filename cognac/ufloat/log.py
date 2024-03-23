@@ -1,5 +1,9 @@
+import os
+
 import numpy as np
 import pandas as pd
+import xarray as xr
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 from matplotlib import gridspec
@@ -25,7 +29,7 @@ class logger:
 
     """
 
-    def __init__(self):
+    def __init__(self, file=None):
         # self.var = var
         # for item in var:
         #    setattr(self, item, np.array([]))
@@ -33,21 +37,30 @@ class logger:
         # self.labels = ['time']+logs
         # self.df = pd.DataFrame(columns=['time']+logs)
         self.data = []
+        self.df = None
+        if file is not None:
+            self.load(file)
 
     def __getitem__(self, key):
         """return column of the log"""
+        assert self.df is not None, "need to call finalize first"
         if key is not "time":
             return self.df.set_index("time")[key]
         else:
             return self.df["time"]
 
     def __repr__(self):
-        return str(self.df.head())
+        if self.df is not None:
+            return str(self.df.head())
+        elif len(self.data)>0:
+            return self.data[0]
+        else:
+            print("log is empty")
 
-    def store(self, **kwargs):
+    def log(self, **kwargs):
         """Appends variables to the logger database:
         Usage:
-            log.store(time=10., v=1.)
+            log.log(time=10., v=1.)
         The above line will append values 10. and 1. to variables t and v respectively
         """
         # for item in self.var:
@@ -65,6 +78,18 @@ class logger:
     def cleanup(self):
         """Merge duplicated temporal information"""
         self.df = self.df.groupby("time").mean().reset_index()
+
+    def store(self, file, overwrite=False):
+        """ store log in netcdf file """
+        assert self.df is not None, "log has not been finalized (no df)"
+        if not os.path.isfile(file) or overwrite:
+            ds = self.df.to_xarray()
+            ds.to_netcdf(file, mode="w")
+
+    def load(self, file):
+        """ load log from netcdf file """
+        self.df = xr.open_dataset(file).to_dataframe()
+        self.data = []
 
     def plot(self, **kwargs):
         _dkwargs = {"subplots": True, "grid": True}

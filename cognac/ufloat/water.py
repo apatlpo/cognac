@@ -157,7 +157,7 @@ class waterp:
         self._append_derived_properties(bg, True)
         self.bg = bg
 
-    def now(self, z=None, dz=1.0, extra=False, **kwargs):
+    def at(self, z=None, dz=1.0, extra=False, **kwargs):
         """get current water properties, i.e. potentially displaced vertically compared to
         the background profile (isopycnal displacement eta)
 
@@ -280,7 +280,7 @@ class waterp:
 
     def _plot_hv(self, **kwargs):
         # df = self._get_df()
-        df = self.now(extra=True).to_dataframe()[["temperature", "salinity", "rho"]]
+        df = self.at(extra=True).to_dataframe()[["temperature", "salinity", "rho"]]
         p = df.hvplot(
             grid=True,
             subplots=True,
@@ -302,8 +302,8 @@ class waterp:
 
     def __getitem__(self, key):
         if self.no is None:
-            self.no = self.now()
-        v = self.now[key]
+            self.no = self.at()
+        v = self.at[key]
         if v["z"].size == 1:
             v = float(v)
         return v
@@ -329,5 +329,41 @@ class waterp:
             self.eta = eta
         self.detadt = detadt
         self.d2etadt2 = d2etadt2
-        # self.no = self.now()
+        # self.no = self.at()
         self.no = None
+
+    def get_eta(self, z, method="gradient", dvdz=None, **kwargs):
+        """ compute the isopycnal displacement associated with tracer values and depth
+        Current implementation ignores pressure effects on tracers
+        
+        Parameters
+        ----------
+        z: float, np.array
+            depth at which tracers are provided
+        eta_max: float
+        **kwargs:
+            tracer values, arrays of same size than z
+        """
+        if isinstance(z, (int, float, list)):
+            _z = np.array(z)
+        else:
+            _z = z
+        assert len(kwargs)==1, "displacement based on more than one tracer is not implemented yet"
+        tracer = list(kwargs)[0]
+        v = kwargs[tracer]
+        if isinstance(v, (int, float, list)):
+            v = np.array(v)
+        if method=="gradient":
+            bg = self.bg.sel(z=z, method="nearest")
+            v_bg = bg[tracer].values
+            if dvdz is None:
+                dvdz = bg[f"d{tracer}_dz"].values            
+            return -(v - v_bg)/dvdz
+        elif method=="sorted":
+            # tracer profile should be close to monotonic
+            bg = self.bg.sortby(tracer).swap_dims(z=tracer)
+            z_displaced = np.interp(v, bg[tracer].values, bg.z.values)
+            return z - z_displaced
+        # other more complex methods could be explored, e.g.:
+        #    - combined constraints on tracers
+
