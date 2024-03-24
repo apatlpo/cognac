@@ -85,6 +85,8 @@ class logger:
         if not os.path.isfile(file) or overwrite:
             ds = self.df.to_xarray()
             ds.to_netcdf(file, mode="w")
+        else:
+            print(f"Does not overwrite file: {file}")
 
     def load(self, file):
         """ load log from netcdf file """

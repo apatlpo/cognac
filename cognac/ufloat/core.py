@@ -1,4 +1,5 @@
-import sys
+import os, sys
+from glob import glob
 import yaml
 from pprint import pformat
 
@@ -219,11 +220,13 @@ class autonomous_float:
         if m is None:
             m = self["m"]
         #
+        if waterp is not None:
+            water = waterp.at(z=z)
         if p is None:
-            p = waterp.at(z=z)["pressure"]
+            p = water["pressure"]
         if temp is None:
             # assumes thermal equilibrium
-            temp = waterp.at(z=z)["temperature"]
+            temp = water["temperature"]
         #
         if air is not None:
             p_surf, v_surf, temp_surf = 10, air[0], air[1]
@@ -245,7 +248,7 @@ class autonomous_float:
             self._m_air = m_air
             V += v_air
         #
-        V += self["V"] * (-self.gamma * p + self.alpha * (temp - self.temp0))
+        V += self["V"] * (-self["gamma"] * p + self["alpha"] * (temp - self["temp0"]))
         self._volume = V  # for log purposes
         return m / V
 
@@ -285,7 +288,7 @@ class autonomous_float:
         """
 
         v = 0.
-        if piston:
+        if piston and hasattr(self, "piston"):
             v = self.piston.vol
         def _f(m):
             return rho_eq - self.rho(p=p_eq, temp=temp_eq, m=m, v=v)
@@ -946,6 +949,22 @@ class autonomous_float:
     def plot_logs(self, **kwargs):
         """wrapper around plot_logs"""
         plot_logs(self.log, self, **kwargs)
+
+    def store_logs(self, data_dir, label, **kwargs):
+        """ store logs in netcdf files """
+        for log_label, log in self.log.items():
+            file = os.path.join(data_dir, label+"_"+log_label+".nc")
+            log.store(file, **kwargs)
+            print(f"log {log_label} stored in {file}")
+
+    def load_logs(self, data_dir, label):
+        """ reload logs from netcdf files """
+        log_files = sorted(glob(os.path.join(data_dir, label+"_*.nc")))
+        log = {}
+        for file in log_files:
+            log_label = file.split("_")[-1].replace(".nc", "")
+            log[log_label] = logger(file=file)
+        self.log = log
 
 
 # ---------------------------- piston -------------------------------------------
