@@ -1,0 +1,189 @@
+# ------------------------------- campaign info --------------------------------------
+campaign:
+  name: guerledan_202310
+  # path to general directory:
+  path: /Users/aponte/Current_Projects/ensta/guerledan/202310/
+  # path to raw data directory:
+  path_raw: data_raw/ 
+  # path to clean data  directory:
+  path_processed: data_clean/
+  # geographical and temporal bounds
+  lon:
+    - -3.035
+    - -3.013
+  lat:
+    - 48.195
+    - 48.202
+  start: "2024-02-05 05:00:00"
+  end: "2024-02-09 10:00:00"
+  # bathymetric data and configuration
+  bathy:
+    path: /Users/aponte/Current_Projects/ensta/guerledan/data_common/Guerledan_Feb19_0.5m.tiff
+    label: guerledan_east
+    levels: !!python/list [2000, 1500, 1000, 500, 100, 0]
+  coastline: h
+# ------------------------------- general deployments / campaign parts ----------------------------------
+#
+# Deployments can also be used to mark positions or isolated events
+#
+deployments:
+  #underway:
+  #    start: "2022-09-21 06:30:00"
+  #    end: "2022-09-25 15:10:00"
+  #    meta:
+  #      platforms: europe drix
+  #      color: black
+# ------------------------------- platform info --------------------------------------
+#
+# Platforms data.
+# Each platform may be described by: deployments, sensors, meta data
+# Each sensor may be described by: deployments, meta data
+#
+platforms:
+#
+#
+  seabot1:
+    deployments:
+        isoT0:
+          - 2023/10/10 20:28:15
+          - 2023/10/11 07:19:10
+          - meta:
+              data_dir: test_guerledan_2023_10_10/night_day/seabot1
+              gps_start: 2023/10/10 20:31:00
+              gps_end: 2023/10/11 07:04:00
+              iso_start: 2023/10/10 20:40:00
+              iso_end: 2023/10/11 07:00:00
+        isoT2:
+          - 2023/10/12 12:32:08
+          - 2023/10/13 08:07:11
+          - meta:
+              data_dir: test_guerledan_2023_10_13/seabot1
+              gps_start: 2023/10/12 12:40:00
+              gps_end: 2023/10/13 07:43:00
+              iso_start: 2023/10/12 12:47:00
+              iso_end: 2023/10/13 07:40:00
+    meta:
+      color: forestgreen
+#
+#
+  seabot2:
+    deployments:
+        isoT0:
+          - 2023/10/10 20:40:14
+          - 2023/10/11 07:19:10
+          - meta:
+              data_dir: test_guerledan_2023_10_10/night_day/seabot2 
+              gps_start: 2023/10/10 20:43:00
+              gps_end: 2023/10/11 07:03:00
+              iso_start: 2023/10/10 20:49:00
+              iso_end: 2023/10/11 07:00:00
+    meta:
+      color: cadetblue
+#
+#
+  seabot3:
+    deployments:
+        isoT0:
+          - 2023/10/10 20:28:46
+          - 2023/10/11 07:19:09
+          - meta:
+              data_dir: test_guerledan_2023_10_10/night_day/seabot3
+              gps_start: 2023/10/10 20:31:00
+              gps_end: 2023/10/11 07:03:00
+              iso_start: 2023/10/10 20:52:00
+              iso_end: 2023/10/11 07:00:00
+        cast0:
+          #- 2023/10/12 12:32:15
+          - 2023/10/12 12:40:50
+          #- 2023/10/12 18:28:02
+          - 2023/10/12 12:46:00
+          - meta:
+              data_dir: test_guerledan_2023_10_12/seabot3
+              gps_start: 2023/10/12 12:40:00
+              gps_end: 2023/10/12 12:49:00
+        scan0:
+          - 2023/10/12 19:02:10
+          - 2023/10/13 11:16:37
+          - meta:
+              data_dir: test_guerledan_2023_10_13/seabot3
+              gps_start: 2023/10/12 19:16:35
+              gps_end: 2023/10/13 09:12:30
+              scan_start: 2023/10/12 19:22:00
+              scan_end: 2023/10/13 09:08:30
+    meta:
+      color: darkgray
+#
+#
+  seabot4:
+    deployments:
+        isoT0:
+          - 2023/10/10 20:28:47
+          - 2023/10/11 07:19:20
+          - meta:
+              data_dir: test_guerledan_2023_10_10/night_day/seabot4 
+              gps_start: 2023/10/10 20:32:00
+              gps_end: 2023/10/11 07:04:00
+              iso_start: 2023/10/10 20:44:00
+              iso_end: 2023/10/11 07:00:00
+        isoT1:
+          - 2023/10/11 07:35:48
+          - 2023/10/11 16:37:34
+          - meta:
+              data_dir: test_guerledan_2023_10_11/seabot4
+              gps_start: 2023/10/11 11:18:00
+              gps_end: 2023/10/11 16:19:00
+              iso_start: 2023/10/11 10:22:00
+              iso_end: 2023/10/11 16:14:00
+        isoT2:
+          - 2023/10/12 12:32:18
+          - 2023/10/13 08:07:41
+          - meta:
+              data_dir: test_guerledan_2023_10_13/seabot4
+              gps_start: 2023/10/12 12:41:00
+              gps_end: 2023/10/13 07:44:00
+              iso_start: 2023/10/12 12:50:00
+              iso_end: 2023/10/13 07:40:00
+    meta:
+      color: orange
+#
+#
+  seabot5:
+    deployments:
+        isoT0:
+          - 2023/10/10 20:31:58
+          - 2023/10/11 06:52:17
+          - meta:
+              data_dir: test_guerledan_2023_10_10/night_day/seabot5 
+              gps_start: 2023/10/10 20:35:00
+              gps_end: 2023/10/11 06:37:00
+              iso_start: 2023/10/10 20:45:00
+              iso_end: 2023/10/11 06:32:00
+        isoT1:
+          - 2023/10/11 09:53:47
+          - 2023/10/11 16:37:50
+          - meta:
+              data_dir: test_guerledan_2023_10_11/seabot5 
+              gps_start: 2023/10/11 10:18:30
+              gps_end: 2023/10/11 16:18:00
+              iso_start: 2023/10/11 10:42:00
+              iso_end: 2023/10/11 16:15:00
+        cast0:
+          #- 2023/10/12 12:37:50
+          - 2023/10/12 12:41:20
+          #- 2023/10/12 18:28:18
+          - 2023/10/12 12:46:20
+          - meta:
+              data_dir: test_guerledan_2023_10_12/seabot5
+              gps_start: 2023/10/12 12:41:00
+              gps_end: 2023/10/12 12:50:00
+        scan0:
+          - 2023/10/12 19:02:14
+          - 2023/10/13 07:56:44
+          - meta:
+              data_dir: test_guerledan_2023_10_13/seabot5
+              gps_start: 2023/10/12 19:19:30
+              gps_end: 2023/10/13 07:46:00
+              scan_start: 2023/10/12 19:32:00
+              scan_end: 2023/10/13 07:43:30
+    meta:
+      color: crimson

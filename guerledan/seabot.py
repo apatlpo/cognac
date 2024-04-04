@@ -80,9 +80,10 @@ def load_rosbag(
         data_dir = "/".join(data_dir.split("/")[:-1])
     
     # extract timestamp
-    print(ros_dir.replace('rosbag2_', ''))
+    #print(ros_dir.replace('rosbag2_', ''))
     time_start = pd.to_datetime(ros_dir.replace('rosbag2_', ''), format="%Y_%m_%d-%H_%M_%S")
     ros_dir = os.path.join(data_dir, ros_dir)
+    print(ros_dir)
     if not "data" in os.listdir(ros_dir):
         if verbose: print("no data directory in :"+ros_dir)
         return
@@ -150,12 +151,15 @@ def load_rosbag(
 # driver_profile: distance / confidence / transmit_duration / ping_number / scan_start / scan_length / gain_setting / profile_data_length / profile_data / time_posix
 
 def walk_load_repo(data_dir, _top=True, **kwargs):
-    """ walk data repository and load rosbags
-    
-    
-    """
+    """walk seabot data repository and load rosbags"""
     content = sorted(os.listdir(data_dir))
-    content = [c for c in content if c not in [".DS_Store"]]
+    content = [
+        c for c in content if 
+        not (
+            c in [".DS_Store"]
+            or ".txt" in c
+        )
+    ]
     if any(["rosbag" in c for c in content]):
         return load_rosbag(data_dir, **kwargs)
     else:
@@ -165,7 +169,7 @@ def walk_load_repo(data_dir, _top=True, **kwargs):
         return D
 
 def dfilter(D, key):
-    """ select a key in a flatten data dict """
+    """select a key in a flatten seabot data dict"""
     Do = {}
     for k, v in D.items():
         if key in k:
@@ -215,7 +219,8 @@ def match_dict_cp(D, cp):
                             #print(plabel, dlabel, Ddata_dir) 
                             #break
                             M[(plabel, dlabel)] = key
-    return M
+    iM = {v: k for k, v in M.items()} # reverse dict
+    return M, iM
 
 def append_depth_filtered(df, tau, key="depth"):
     """ filter pressure, inplace """
@@ -228,27 +233,66 @@ def append_depth_filtered(df, tau, key="depth"):
     dt = (df.reset_index()["time"].diff().bfill() / pd.Timedelta("1s")).values
     df["velocity_filtered"] = df["depth_filtered"].diff().bfill().values / dt
 
-def plot_depth(D, dkey="ka_depth", legend=True):
-    """ plot depth for all deployments """
+def plot_depth(
+    D, 
+    dkey="ka_depth", 
+    legend=True, 
+    thumbnail=None,
+    colors=None,
+):
+    """ plot depth for all deployments 
+    
+    Parameter
+    ---------
+    D: seabot data dict
+    dkey: depth variable key
+    legend: boolean, optional
+        add legend
+    thumbnail:
+        show as thumbnails
+    """
 
-    colors = get_cmap_colors(len(D))
-
-    fig, ax = plt.subplots(1,1, figsize=(15,4))
+    colors = _get_colors(colors, D)
+    
+    ax = None
+    if thumbnail is None:
+        fig, ax = plt.subplots(1,1, figsize=(15,4))
+    else:
+        nx, ny = 4, 1
+    
+    i=0
     for key, c in zip(D, colors):
         if isinstance(key, tuple):
             df = D[key]
         else:
             df = key
-        ax.plot(df.index, -df[dkey], color=c, label="/".join(key))
-    ax.grid()
-    if legend:
-        ax.legend()
+        if thumbnail is None:
+            ax.plot(df.index, -df[dkey], color=c, label="/".join(key))
+        else:
+            if i>=nx*ny:
+                i=0
+            if i==0:
+                fig = plt.figure(figsize=(18,2))
+            ax = fig.add_subplot(ny, nx, i+1)
+            #_ax = ax.flatten()[i]
+            ax.plot(df.index, -df[dkey], color=c, label="/".join(key))
+            #ax.autofmt_xdate()
+            plt.xticks(rotation=45)
+            ax.set_title("/".join(key))
+            ax.grid()
+        i+=1
+            
+    if thumbnail is None:
+        ax.grid()
+        if legend:
+            ax.legend()
     
     return fig, ax
 
-def hv_plot(D, v, revert_yaxis=False):
+def hv_plot(D, v, revert_yaxis=False, colors=None):
     
-    colors = get_cmap_colors(len(D))
+    #colors = get_cmap_colors(len(D))
+    colors = _get_colors(colors, D)
     
     p = None
     for key, c in zip(D, colors):
@@ -268,6 +312,16 @@ def hv_plot(D, v, revert_yaxis=False):
     
     return p
 
+def _get_colors(colors, D):
+    """ helper method to massage colors argument"""
+    if colors is None:
+        colors = get_cmap_colors(len(D))
+    elif isinstance(colors, str):
+        colors = [colors]*len(D)
+    elif isinstance(colors, dict):
+        colors = [colors[key] for key in D]
+    return colors
+
 def get_cmap_colors(Nc, cmap="plasma"):
     """load colors from a colormap to plot lines
 
@@ -282,11 +336,11 @@ def get_cmap_colors(Nc, cmap="plasma"):
     return [scalarMap.to_rgba(i) for i in range(Nc)]
 
 
-def show_gps(Dp, i, start, full=False):
+def show_gps(Dp, Dk, i, start, full=False):
     """ show start/end gps tracks """
 
     key = list(Dp)[i]
-    #print(key)
+    print(key)
 
     df = Dp[key]
     dfk = Dk[key]
@@ -331,8 +385,8 @@ def load_gps(deployment, Dp):
         df = df.loc[ df["mode"]==3 ]
         
         if df.index.size>0 and key in deployment:
-            start =  df.loc[ df.index>deployment[key]["start"] ].iloc[0]
-            end =  df.loc[ df.index>deployment[key]["end"] ].iloc[0]
+            start =  df.loc[ df.index>=deployment[key]["start"] ].iloc[0]
+            end =  df.loc[ df.index>=deployment[key]["end"] ].iloc[0]
 
             _dict = dict(
                 start_lon=float(start.longitude),
@@ -340,7 +394,16 @@ def load_gps(deployment, Dp):
                 end_lon=float(end.longitude),
                 end_lat=float(end.latitude),
             )
+        else:
+            _dict = dict(
+                start_lon=np.nan,
+                start_lat=np.nan,
+                end_lon=np.nan,
+                end_lat=np.nan,
+            )
+        if key in deployment:
             deployment[key].update(**_dict)
+            
 
 def key2title(key, splitter):
     """ convert data dict key into a single string """
