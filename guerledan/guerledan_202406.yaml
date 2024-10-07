@@ -1,0 +1,62 @@
+# ------------------------------- campaign info --------------------------------------
+campaign:
+  name: guerledan_202406
+  # path to general directory:
+  path: /Users/aponte/Current_Projects/ensta/guerledan/202406/
+  # path to raw data directory:
+  path_raw: data_raw/ 
+  # path to clean data  directory:
+  path_processed: data_clean/
+  # geographical and temporal bounds
+  lon:
+    - -3.03
+    - -3.013
+  lat:
+    - 48.195
+    - 48.2
+  start: "2024-06-24 05:00:00"
+  end: "2024-06-28 10:00:00"
+  # bathymetric data and configuration
+  bathy:
+    path: /Users/aponte/Current_Projects/ensta/guerledan/data_common/Guerledan_Feb19_0.5m.tiff
+    label: guerledan_east
+    levels: !!python/list [2000, 1500, 1000, 500, 100, 0]
+  coastline: h
+# ------------------------------- general deployments / campaign parts ----------------------------------
+#
+# Deployments can also be used to mark positions or isolated events
+#
+deployments:
+  #underway:
+  #    start: "2022-09-21 06:30:00"
+  #    end: "2022-09-25 15:10:00"
+  #    meta:
+  #      platforms: europe drix
+  #      color: black
+# ------------------------------- platform info --------------------------------------
+#
+# Platforms data.
+# Each platform may be described by: deployments, sensors, meta data
+# Each sensor may be described by: deployments, meta data
+#
+platforms:
+#
+#
+  seabot2:
+    deployments:
+        isoB0:
+          - 2024/06/25 20:00:00
+          - 2024/06/26 08:00:00
+          - meta:
+              data_dir: test_guerledan_2024_06_26/seabot2/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              #iso_start: 2024/02/06 17:37:40
+              #iso_end: 2024/02/07 08:30:00
+        acoustic0:
+          - 2024/06/26 14:00:00
+          - 2024/06/26 15:00:00
+          - meta:
+              data_dir: test_acoustic_2024_06_26/seabot2/
+    meta:
+      color: cadetblue

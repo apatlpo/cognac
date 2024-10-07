@@ -152,6 +152,8 @@ def load_rosbag(
 
 def walk_load_repo(data_dir, _top=True, **kwargs):
     """walk seabot data repository and load rosbags"""
+    if not os.path.isdir(data_dir):
+        return
     content = sorted(os.listdir(data_dir))
     content = [
         c for c in content if 
@@ -166,6 +168,7 @@ def walk_load_repo(data_dir, _top=True, **kwargs):
         D = {c: walk_load_repo(os.path.join(data_dir, c), _top=False, **kwargs) for c in content}
         if _top:
             D = flatten(D)
+            D = {k:v for k, v in D.items() if v is not None} # filter out empty items
         return D
 
 def dfilter(D, key):
@@ -239,6 +242,7 @@ def plot_depth(
     legend=True, 
     thumbnail=None,
     colors=None,
+    figsize=(15,4),
 ):
     """ plot depth for all deployments 
     
@@ -256,9 +260,12 @@ def plot_depth(
     
     ax = None
     if thumbnail is None:
-        fig, ax = plt.subplots(1,1, figsize=(15,4))
+        fig, ax = plt.subplots(1,1, figsize=figsize)
     else:
-        nx, ny = 4, 1
+        if isinstance(thumbnail, tuple):
+            nx, ny = thumbnail
+        else:
+            nx, ny = 4, 1
     
     i=0
     for key, c in zip(D, colors):
@@ -272,7 +279,7 @@ def plot_depth(
             if i>=nx*ny:
                 i=0
             if i==0:
-                fig = plt.figure(figsize=(18,2))
+                fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(ny, nx, i+1)
             #_ax = ax.flatten()[i]
             ax.plot(df.index, -df[dkey], color=c, label="/".join(key))

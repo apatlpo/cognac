@@ -579,6 +579,7 @@ class autonomous_float:
             coords=dict(z=("z", z), omega=("omega", omega_hz)),
         )
         ds["_omega"] = ("omega", omega)
+        ds["v_air"] = v_air
         ds["M2"] = ("z", M2)
         ds["N2"] = ("z", N2)
         ds["L2"] = ("z", L2)
@@ -589,6 +590,7 @@ class autonomous_float:
         ds["H_p^r"] = -g * Ap / self["V"] / _denum
 
         ds["H_w^f"] = 1 - ds["H_w^r"]
+        ds["H_p^f"] = -ds["H_p^r"]
 
         ds["H_f^r"] = ds["H_w^r"] / ds["H_w^f"]
         ds["H_p^rbis"] = ds["H_p^r"] / (1 - ds["H_w^r"])

@@ -1,0 +1,11 @@
+name_of_ballast:
+  CT: 17.990859943658748
+  SA: 0.5023866477891663
+  V: 0.01341485356510202
+  comments: None
+  mass_in_air: 13595.0
+  mass_in_water: 191.54
+  piston_displacement: 0.0675
+  rho_water: 999.1506754026999
+  water_salinity: 0.5
+  water_temperature: 17.1

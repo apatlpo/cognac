@@ -4,6 +4,7 @@ clean
 *.swp
 *.egg-info/
 .DS_Store
+_version.py
 
 # Byte-compiled / optimized / DLL files
 build/
