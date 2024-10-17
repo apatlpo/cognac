@@ -1,0 +1,196 @@
+# ------------------------------- campaign info --------------------------------------
+campaign:
+  name: guerledan_202410
+  # path to general directory:
+  path: /Users/aponte/Current_Projects/ensta/guerledan/202410/
+  # path to raw data directory:
+  path_raw: data_raw/ 
+  # path to clean data  directory:
+  path_processed: data_clean/
+  # geographical and temporal bounds
+  lon:
+    - -3.022
+    - -3.013
+  lat:
+    - 48.196
+    - 48.201
+  start: "2024-10-8 05:00:00"
+  end: "2024-10-11 15:00:00"
+  # bathymetric data and configuration
+  bathy:
+    path: /Users/aponte/Current_Projects/ensta/guerledan/data_common/Guerledan_Feb19_0.5m.tiff
+    label: guerledan_east
+    levels: !!python/list [50, 40, 30, 20, 10, 0]
+  coastline: h
+# ------------------------------- general deployments / campaign parts ----------------------------------
+#
+# Deployments can also be used to mark positions or isolated events
+#
+deployments:
+  #underway:
+  #    start: "2022-09-21 06:30:00"
+  #    end: "2022-09-25 15:10:00"
+  #    meta:
+  #      platforms: europe drix
+  #      color: black
+# ------------------------------- platform info --------------------------------------
+#
+# Platforms data.
+# Each platform may be described by: deployments, sensors, meta data
+# Each sensor may be described by: deployments, meta data
+#
+platforms:
+#
+#
+  seabot1:
+    deployments:
+        isoT0:
+          - 2024/10/08 18:52:06
+          - 2024/10/09 07:33:47
+          - meta:
+              data_dir: test_guerledan_2024_10_08/seabot1/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/08 19:12:00
+              core_end: 2024/10/09 07:00:00
+              target: 12
+        isoT2:
+          - 2024/10/10 20:05:32 -3.019752 48.197857
+          - 2024/10/11 07:37:21 -3.016098 48.200472
+          - meta:
+              data_dir: test_guerledan_2024_10_10b/seabot1/
+              core_start: 2024/10/10 20:40:00
+              core_end: 2024/10/11 07:00:00
+              target: 12
+        freeZ:
+          - 2024/10/11 08:17:16
+          - 2024/10/11 09:50:17
+          - meta:
+              data_dir: test_guerledan_2024_10_11/seabotX/
+              core_start: 2024/10/11 08:36:00
+              core_end: 2024/10/11 09:30:00
+              target: 19
+    meta:
+      color: C0
+  seabot2:
+    deployments:
+        scanZ0:
+          - 2024/10/08 18:52:34
+          - 2024/10/09 03:49:24
+          - meta:
+              data_dir: test_guerledan_2024_10_08/seabot2/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/08 19:11:00
+              core_end: 2024/10/09 03:49:24
+              depth_min: 10
+              depth_max: 25
+        isoT2:
+          - 2024/10/10 20:15:08 -3.019587 48.197784
+          - 2024/10/11 07:37:48 -3.016098 48.200472
+          - meta:
+              data_dir: test_guerledan_2024_10_10b/seabot2/
+              core_start: 2024/10/10 20:40:00
+              core_end: 2024/10/11 07:00:00
+              target: 12      
+    meta:
+      color: C1
+  seabot3:
+    deployments:
+        scanZ0:
+          - 2024/10/08 18:50:00
+          - 2024/10/09 03:54:20
+          - meta:
+              data_dir: test_guerledan_2024_10_08/seabot3/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/08 19:29:00
+              core_end: 2024/10/09 03:54:20
+              depth_min: 10
+              depth_max: 25
+        isoZ1:
+          - 2024/10/10 08:10:00
+          - 2024/10/10 15:55:00
+          - meta:
+              data_dir: test_guerledan_2024_10_10a/seabot3/
+              core_start: 2024/10/10 08:50:00
+              core_end: 2024/10/10 14:29:00
+              target: 19
+        isoT2:
+          - 2024/10/10 20:15:00 -3.019969 48.197774
+          - 2024/10/11 07:37:38 -3.016453 48.199622
+          - meta:
+              data_dir: test_guerledan_2024_10_10b/seabot3/
+              core_start: 2024/10/10 20:40:00
+              core_end: 2024/10/11 07:00:00
+              target: 12
+    meta:
+      color: C2
+  seabot4:
+    deployments:
+        isoT0:
+          - 2024/10/08 18:53:59
+          - 2024/10/09 04:14:04
+          - meta:
+              data_dir: test_guerledan_2024_10_08/seabot4/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/08 19:14:00
+              core_end: 2024/10/09 04:14:04
+              target: 12.
+        scanZ1:
+          - 2024/10/10 08:13:06
+          - 2024/10/10 15:04:50
+          - meta:
+              data_dir: test_guerledan_2024_10_10a/seabot4/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/10 08:35:00
+              core_end: 2024/10/10 14:25:00
+              depth_min: 10
+              depth_max: 25
+        isoT2:
+          - 2024/10/10 20:13:18 -3.019970 48.197917
+          - 2024/10/11 07:36:42 -3.015894 48.199051
+          - meta:
+              data_dir: test_guerledan_2024_10_10b/seabot4/
+              gps_start: 2024/10/10 20:31:27
+              gps_end: 2024/10/11 07:02:45
+              core_start: 2024/10/10 20:40:00
+              core_end: 2024/10/11 07:00:00
+              target: 12
+    meta:
+      color: C3
+  seabot5:
+    deployments:
+        scanZ0:
+          - 2024/10/08 18:54:01
+          - 2024/10/09 04:00:04
+          - meta:
+              data_dir: test_guerledan_2024_10_08/seabot5/
+              #gps_start: 2024/02/06 17:30:25
+              #gps_end: 2024/02/07 08:32:00
+              core_start: 2024/10/08 19:12:00
+              core_end: 2024/10/09 04:00:04
+              depth_min: 10
+              depth_max: 25
+        isoT1:
+          - 2024/10/10 08:11:15
+          - 2024/10/10 15:04:58
+          - meta:
+              data_dir: test_guerledan_2024_10_10a/seabot5/
+              core_start: 2024/10/10 08:40:00
+              core_end: 2024/10/10 14:30:00
+              target: 12
+        isoT2:
+          - 2024/10/10 20:13:49 #-3.019054 48.197926
+          - 2024/10/11 07:37:30 -3.016323 48.199979
+          - meta:
+              data_dir: test_guerledan_2024_10_10b/seabot5/
+              gps_start: 2024/10/10 20:31:30
+              gps_end: 2024/10/11 07:02:40
+              core_start: 2024/10/10 20:40:00
+              core_end: 2024/10/11 07:00:00
+              target: 12
+    meta:
+      color: C4

@@ -20,7 +20,7 @@ campaign:
   bathy:
     path: /Users/aponte/Current_Projects/ensta/guerledan/data_common/Guerledan_Feb19_0.5m.tiff
     label: guerledan_east
-    levels: !!python/list [2000, 1500, 1000, 500, 100, 0]
+    levels: !!python/list [50, 40, 30, 20, 10, 0]
   coastline: h
 # ------------------------------- general deployments / campaign parts ----------------------------------
 #

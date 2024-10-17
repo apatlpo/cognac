@@ -205,8 +205,18 @@ def combine(
         Dout[k_out] = pd.concat(_D, join="inner", axis=1)
     return Dout
 
-def match_dict_cp(D, cp):
-    """ match data dict keys with yaml file info """
+def match_filter_with_cp(D, cp, filter=True):
+    """ match data dict keys with campaign yaml file info
+    filter based on start/end times
+
+    Parameters
+    ----------
+    D: dict
+        ensemble of dicts
+    cp: pynsitu.events.campaign
+    filter: boolean, optional
+        activates filtering
+    """
     Dd = dfilter(D, "data_dir")
 
     M = {}
@@ -223,6 +233,15 @@ def match_dict_cp(D, cp):
                             #break
                             M[(plabel, dlabel)] = key
     iM = {v: k for k, v in M.items()} # reverse dict
+    # filter
+    if filter:
+        # filter with start/end time
+        for p, k in M.items():
+            start = cp[p[0]][p[1]].start.time
+            end = cp[p[0]][p[1]].end.time
+            for kk, df in D.items():
+                if kk[0]==k[0] and kk[1]==k[1] and isinstance(df, pd.DataFrame):
+                    D[kk] = df.loc[ (df.index>=start) & (df.index<=end) ]        
     return M, iM
 
 def append_depth_filtered(df, tau, key="depth"):
@@ -243,6 +262,8 @@ def plot_depth(
     thumbnail=None,
     colors=None,
     figsize=(15,4),
+    time_slice=None,
+    **kwargs,
 ):
     """ plot depth for all deployments 
     
@@ -273,8 +294,13 @@ def plot_depth(
             df = D[key]
         else:
             df = key
+        if time_slice is not None:
+            if pd.to_datetime(time_slice[0]) > df.index[-1] or pd.to_datetime(time_slice[1]) < df.index[0]:
+                continue
+        dkwargs = dict(color=c, label="/".join(key))
+        dkwargs.update(**kwargs)
         if thumbnail is None:
-            ax.plot(df.index, -df[dkey], color=c, label="/".join(key))
+            ax.plot(df.index, -df[dkey], **dkwargs)
         else:
             if i>=nx*ny:
                 i=0
@@ -282,7 +308,7 @@ def plot_depth(
                 fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(ny, nx, i+1)
             #_ax = ax.flatten()[i]
-            ax.plot(df.index, -df[dkey], color=c, label="/".join(key))
+            ax.plot(df.index, -df[dkey], **dkwargs)
             #ax.autofmt_xdate()
             plt.xticks(rotation=45)
             ax.set_title("/".join(key))
@@ -451,7 +477,9 @@ def load_bathy(tiff_path):
 def plot_map(
     zoom="east",
     extent=None,
-    bathy=None, dx=10, 
+    bathy=None, 
+    bathy_kwargs={},
+    dx=10, 
     tile=True, tile_level=None,
     figsize=(5,5),
 ):
@@ -492,7 +520,10 @@ def plot_map(
     if bathy is not None:
         ds = load_bathy(bathy).isel(x=slice(0,None,dx), y=slice(0,None,dx))
         height = ds.height - ds.height.min()
-        hdl = ax.pcolormesh(ds.lon, ds.lat, height, transform=crs)
+        hdl = ax.pcolormesh(
+            ds.lon, ds.lat, height, transform=crs,
+            **bathy_kwargs
+            )
 
     if tile:
         ax.add_image(tile, tile_level)

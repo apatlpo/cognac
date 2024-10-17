@@ -1,5 +1,16 @@
 # Install useful libraries for cognac:
 
+To update with latest approach:
+
+````
+conda create -n insitu -c apatlpo -c pyviz -c conda-forge python=3.10 pynsitu jupyterlab seaborn pyTMD xrft xhistogram geojson pynmea2 rioxarray
+conda activate insitu
+pip install flatten_dict
+# then manually install cognac
+pip install freshwater
+conda install -c conda-forge bambi # baysian inference
+```
+
 Download Miniconda3 (i.e. for python3) from the [conda website](https://conda.io/miniconda.html)
 ```
 bash Miniconda3-latest-MacOSX-x86_64.sh

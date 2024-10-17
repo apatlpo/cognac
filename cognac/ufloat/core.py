@@ -83,7 +83,7 @@ class autonomous_float:
                 "r": 0.06,
                 "L": 1.,
                 "gamma": 3.5e-06,
-                "alpha": 0.0,
+                "alpha": 1.e-4,
                 "temp0": 0.0,
                 "a": 1.0,
                 "drag_model": "polynomial",
@@ -491,20 +491,23 @@ class autonomous_float:
         #          %(df[0]/self["m"]*60,df[0]/self["m"]*60**2/2.))
         return fmax, fmin, afmax, wmax
 
-    def get_drag_velocity(self, dm, Lv=None):
-        """From a mass offset compute the drag velocity
+    def get_terminal_velocity(self, dm):
+        """ from a mass offset compute the terminal velocity that balances drag
 
         Parameters:
         -----------
         dm: float
             mass offset [kg]
-        """
-        if not Lv:
-            if hasattr(self, "Lv"):
-                Lv = self.Lv
-            else:
-                Lv = self.L
-        return np.sqrt(g * dm / self["m"] * 2 * Lv / self.c1)
+        """        
+        def _f(w):
+            cd = self.get_cd(w, 0.)
+            return g * dm + self["m"] * cd * w 
+        if isinstance(dm, float) or isinstance(dm, int):
+            w0 = 0.
+            return fsolve(_f, w0)[0]
+        else:
+            w0 = np.zeros_like(dm)
+            return fsolve(_f, w0)
 
     def get_transfer_functions(
         self,
