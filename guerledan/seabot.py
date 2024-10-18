@@ -150,8 +150,16 @@ def load_rosbag(
 # with allow_pickle=False cannot load : observer/parameter.npz and driver/profile.npz
 # driver_profile: distance / confidence / transmit_duration / ping_number / scan_start / scan_length / gain_setting / profile_data_length / profile_data / time_posix
 
-def walk_load_repo(data_dir, _top=True, **kwargs):
-    """walk seabot data repository and load rosbags"""
+def walk_load_repo(data_dir, top_dir=None, _top=True, **kwargs):
+    """walk seabot data repository and load rosbags
+    
+    Parameters
+    ----------
+    data_dir: str
+        Root directory to explore
+    top_dir: str, optional
+        Narrow walk to one sub directory
+    """
     if not os.path.isdir(data_dir):
         return
     content = sorted(os.listdir(data_dir))
@@ -165,6 +173,8 @@ def walk_load_repo(data_dir, _top=True, **kwargs):
     if any(["rosbag" in c for c in content]):
         return load_rosbag(data_dir, **kwargs)
     else:
+        if top_dir is not None and top_dir in content:
+            content = [top_dir]
         D = {c: walk_load_repo(os.path.join(data_dir, c), _top=False, **kwargs) for c in content}
         if _top:
             D = flatten(D)

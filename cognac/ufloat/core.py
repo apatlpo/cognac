@@ -507,7 +507,8 @@ class autonomous_float:
             return fsolve(_f, w0)[0]
         else:
             w0 = np.zeros_like(dm)
-            return fsolve(_f, w0)
+            wt = fsolve(_f, w0)
+            return wt, (1+self["a"])/self.get_cd(wt, 0.)
 
     def get_transfer_functions(
         self,
@@ -1589,7 +1590,7 @@ def plot_float_density(
         ax.plot(rho_f_vmid, z, "-", color="grey", lw=lw, label="float v_mid")
         if air is not None and show_no_air:
             rho_f_vmid_no_air = f.rho(p=p, temp=temp, v=mid)
-            ax.plot(rho_f_vmid_no_air, z, "--", color="grey", lw=lw/2, label="float v_mid")
+            ax.plot(rho_f_vmid_no_air, z, "--", color="grey", lw=lw/2, label="float v_mid - no air")
 
     ax.legend()
     ax.set_xlabel("[kg/m^3]")
